@@ -21,7 +21,7 @@ and preloaded — every page runs out of the box, or accepts an uploaded CSV ins
 
 | Step | Page | Method | Key outputs |
 |---|---|---|---|
-| — | **Catalog** | Interactive Mapbox epicenter map; click anywhere for the top-5 events within 100 km | Map + legend, audit status, top-5 table, source notes |
+| — | **Catalog** | Interactive Mapbox epicenter map; site lat/lon inputs (or a map click) list the top-5 events within 300 km | Map + legend, audit status, top-5 table, source notes |
 | 1 | **Moment Magnitude (Mw)** | Homogenize to Mw (reported Mw > Ms→Mw > mb→Mw, Scordilis 2006 via Lamessa 2019, range-gated) | Homogenized CSV (`mag_mw` + basis), per-event conversion table (LaTeX), basis scatter |
 | 2 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986), mainshock = largest in cluster | Mainshock catalogues (CSV), maps, mag-time plots |
 | 3 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |

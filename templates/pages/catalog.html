@@ -21,6 +21,22 @@
     </div>
   </div>
 
+  <div class="form-row">
+    <div class="form-group"><label>Site</label>
+      <select id="cat-site" onchange="applySitePreset('cat')">
+        <option value="14.62758,121.08727" selected>Project Site &mdash; 14.62758&deg; N, 121.08727&deg; E</option>
+        <option value="custom">Custom (user input)</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Site Latitude (&deg;N)</label>
+      <input type="number" id="cat-slat" value="14.62758" step="any" readonly></div>
+    <div class="form-group"><label>Site Longitude (&deg;E)</label>
+      <input type="number" id="cat-slon" value="121.08727" step="any" readonly></div>
+    <div class="form-group" style="display:flex;align-items:flex-end">
+      <button class="btn btn-primary" onclick="runCatalogTop5()">Top 5 within 300 km</button>
+    </div>
+  </div>
+
   <div id="cat-summary"><p style="color:var(--text2)">Loading catalogue info&hellip;</p></div>
 
   <div style="display:flex; flex-direction:row; align-items:stretch;">
@@ -28,7 +44,8 @@
     <div id="cat-legend"></div>
   </div>
   <p style="color:var(--text2);font-size:13px;margin-top:6px">
-    Click anywhere on the map to list the top 5 earthquakes within 300 km of that point.</p>
+    Use the site inputs above (or click anywhere on the map — it fills them) to list the
+    top 5 earthquakes within 300 km of that point.</p>
   <button class="btn btn-secondary" style="margin-top:4px"
           onclick="downloadMap('map-catalog','phivolcs_catalog_map.png')">Download Map</button>
 

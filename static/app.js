@@ -60,12 +60,13 @@ function spin(id, on) {
   if (s) s.classList.toggle('show', on);
 }
 
-// Site preset dropdown (Declustering): a preset fills and locks the lat/lon
-// fields; "Custom (user input)" unlocks them for manual entry.
-function applySitePreset() {
-  var sel = document.getElementById('dec-site');
-  var lat = document.getElementById('dec-slat');
-  var lon = document.getElementById('dec-slon');
+// Site preset dropdown (Declustering + Catalog): a preset fills and locks the
+// lat/lon fields; "Custom (user input)" unlocks them for manual entry.
+function applySitePreset(prefix) {
+  prefix = prefix || 'dec';
+  var sel = document.getElementById(prefix + '-site');
+  var lat = document.getElementById(prefix + '-slat');
+  var lon = document.getElementById(prefix + '-slon');
   if (!sel || !lat || !lon) return;
   if (sel.value === 'custom') {
     lat.readOnly = false;
@@ -759,15 +760,38 @@ function loadCatalogMap(force) {
     map.on('click', function (e) {
       var hits = map.queryRenderedFeatures(e.point, { layers: ['eq-circles-map-catalog'] });
       if (hits.length) return;   // direct hit on a quake: the popup handles it
+      // keep the site inputs as the source of truth: a map click fills them
+      var sel = document.getElementById('cat-site');
+      var latI = document.getElementById('cat-slat');
+      var lonI = document.getElementById('cat-slon');
+      if (sel && latI && lonI) {
+        sel.value = 'custom';
+        latI.readOnly = false;
+        lonI.readOnly = false;
+        latI.value = e.lngLat.lat.toFixed(5);
+        lonI.value = e.lngLat.lng.toFixed(5);
+      }
       showCatalogTop5(e.lngLat.lat, e.lngLat.lng, map);
     });
   });
 }
 
 
-// ── Catalog: top 5 earthquakes within the clicked area ──
+// ── Catalog: top 5 earthquakes within the selected area ──
 // 300 km matches the site-radius convention used on the Declustering page.
 var CAT_CLICK_RADIUS_KM = 300;
+
+// Run the top-5 search from the catalog page's site lat/lon inputs.
+function runCatalogTop5() {
+  var lat = parseFloat(document.getElementById('cat-slat').value);
+  var lon = parseFloat(document.getElementById('cat-slon').value);
+  if (!isFinite(lat) || !isFinite(lon)) {
+    toast('Enter a valid site latitude and longitude', 'error');
+    return;
+  }
+  if (window._catMap) window._catMap.flyTo({ center: [lon, lat], zoom: 6 });
+  showCatalogTop5(lat, lon, window._catMap || null);
+}
 
 function jsHaversineKm(lat1, lon1, lat2, lon2) {
   var R = 6371.0, toRad = Math.PI / 180;
@@ -835,7 +859,7 @@ function showCatalogTop5(lat, lon, map) {
     var html = '<div class="result-card"><h3>' + title + '</h3>';
     if (!top.length) {
       html += '<p style="color:var(--text2)">No catalogued events within ' +
-        CAT_CLICK_RADIUS_KM + ' km of the clicked point.</p></div>';
+        CAT_CLICK_RADIUS_KM + ' km of the selected point.</p></div>';
       el.innerHTML = html;
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
@@ -847,7 +871,7 @@ function showCatalogTop5(lat, lon, map) {
     top.forEach(function (h, idx) {
       var ev = h.ev;
       var desc = Math.round(h.dist) + ' km ' +
-        bearingCompass(lat, lon, ev.latitude, ev.longitude) + ' of clicked point';
+        bearingCompass(lat, lon, ev.latitude, ev.longitude) + ' of selected point';
       var date = ev.datetime_utc ? String(ev.datetime_utc).slice(0, 10)
         : (ev.year + '-' + String(ev.month).padStart(2, '0') + '-' +
            String(ev.day).padStart(2, '0') + ' (time flagged)');
@@ -870,7 +894,7 @@ function showCatalogTop5(lat, lon, map) {
       ' event(s) within the radius; ranked by preferred magnitude. The numbered rings on the ' +
       'map mark these five events (click a row to zoom to it; hover for the event id). ' +
       'The PHIVOLCS source has no place-name field, so the location is described relative ' +
-      'to the clicked point.</p></div>';
+      'to the selected point.</p></div>';
     el.innerHTML = html;
     el.onclick = function (e) {
       var tr = e.target.closest('tr.cat-top5-row');
