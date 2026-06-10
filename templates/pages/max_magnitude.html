@@ -1,7 +1,9 @@
 <!-- ═══════════ MAX MAGNITUDE ═══════════ -->
 <div id="page-mmax" class="page">
   <h1>Maximum Magnitude Estimation</h1>
-  <p>Estimate Mmax from the observed maximum and cumulative moment release of the declustered catalogue.</p>
+  <p>Statistical Mmax via the Kijko&ndash;Sellevoll estimator (Kijko 2004, Eqs. 6&ndash;8) for the
+    doubly truncated Gutenberg&ndash;Richter distribution, plus the observed maximum and
+    cumulative moment release. Input should be a declustered catalogue complete above Mmin.</p>
 
   <div class="form-row">
     <div class="form-group">
@@ -21,14 +23,18 @@
     </div>
     <h3>Parameters</h3>
     <div class="form-row">
-      <div class="form-group"><label>b-value</label><input type="number" id="mmax-bval" value="1.0" step="0.01"></div>
-      <div class="form-group"><label>sigma-b</label><input type="number" id="mmax-sigmab" value="0.1" step="0.01"></div>
-      <div class="form-group"><label>Mmin</label><input type="number" id="mmax-mmin" value="4.5" step="0.1"></div>
-      <div class="form-group"><label>Input Mmax</label><input type="number" id="mmax-inputmmax" value="8.0" step="0.1"></div>
+      <div class="form-group"><label>b-value (empty = Aki MLE from catalogue)</label>
+        <input type="number" id="mmax-bval" placeholder="auto" step="0.01"></div>
+      <div class="form-group"><label>Mmin (completeness threshold)</label>
+        <input type="number" id="mmax-mmin" value="4.5" step="0.1"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Mmax uncertainty</label><input type="number" id="mmax-sigma" value="0.5" step="0.1"></div>
-      <div class="form-group"><label>Bootstraps</label><input type="number" id="mmax-nboot" value="100" step="10"></div>
+      <div class="form-group">
+        <label><input type="checkbox" id="mmax-dedup" checked> Remove duplicates first (step 2)</label>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="mmax-decluster"> Decluster first (GK, step 3) &mdash; tick when using the raw default catalogue</label>
+      </div>
     </div>
 
     <button class="btn btn-primary" id="mmax-run" onclick="runMmax()">Estimate Mmax</button>

@@ -116,19 +116,37 @@ function escapeHtml(s) {
 function buildTable(rows, cols, rowClass) {
   if (!rows || !rows.length) return '<p style="color:var(--text2)">No data</p>';
   var h = '<div class="tbl-scroll" style="max-height:500px;overflow:auto"><table><tr>';
-  cols.forEach(function(c) { h += '<th>' + c + '</th>'; });
+  cols.forEach(function(c) { h += '<th>' + escapeHtml(String(c)) + '</th>'; });
   h += '</tr>';
   for (var i = 0; i < rows.length; i++) {
     var cls = rowClass ? rowClass(rows[i]) : '';
     h += cls ? '<tr class="' + cls + '">' : '<tr>';
     cols.forEach(function(c) {
       var v = rows[i][c];
-      h += '<td>' + (v !== null && v !== undefined && v !== '' ? v : '-') + '</td>';
+      h += '<td>' + (v !== null && v !== undefined && v !== '' ? escapeHtml(String(v)) : '-') + '</td>';
     });
     h += '</tr>';
   }
   h += '</table></div>';
   h += '<p style="color:var(--text2);font-size:12px">' + rows.length + ' rows</p>';
+  return h;
+}
+
+// Pipeline step notes + warnings returned by the analysis APIs.
+function buildPipelineNotes(d) {
+  var h = '';
+  if (d.pipeline_notes && d.pipeline_notes.length) {
+    h += '<h4>Catalogue preparation (BBS Sec. 3.3.5)</h4><ul style="margin-left:18px">';
+    d.pipeline_notes.forEach(function (n) {
+      h += '<li style="font-size:13px;margin:4px 0;color:var(--text2)">' + escapeHtml(n) + '</li>';
+    });
+    h += '</ul>';
+  }
+  if (d.warnings && d.warnings.length) {
+    d.warnings.forEach(function (w) {
+      h += '<p style="color:var(--warn);font-size:13px;margin:6px 0">&#9888; ' + escapeHtml(w) + '</p>';
+    });
+  }
   return h;
 }
 
@@ -308,12 +326,13 @@ function buildDecLegend(d, suffix, source, showSite) {
     { c: '#b91c1c', dia: 25, label: '6.0 – 6.9', n: mb.m6 },
     { c: '#7f1d1d', dia: 32, label: '≥ 7.0',     n: mb.ge7 }
   ];
-  // Focal-depth classes (USGS): shallow 0–70, intermediate 70–300, deep 300–700 km.
+  // Focal-depth classes: unified project convention, labels come from the API.
   var dc = d.depth_classes || {};
+  var dl = d.depth_class_labels || {};
   var depthRows = [
-    { c: '#93c5fd', label: 'Shallow (< 70 km)',        n: dc.shallow },
-    { c: '#3b82f6', label: 'Intermediate (70–300 km)', n: dc.intermediate },
-    { c: '#1e3a8a', label: 'Deep (300–700 km)',        n: dc.deep }
+    { c: '#93c5fd', label: dl.shallow || 'Shallow (0–35 km)',           n: dc.shallow },
+    { c: '#3b82f6', label: dl.intermediate || 'Mid-depth (35–70 km)',   n: dc.intermediate },
+    { c: '#1e3a8a', label: dl.deep || 'Deep (70–700 km)',               n: dc.deep }
   ];
   var nTxt = function (v) { return v == null ? '' : ' <span style="color:var(--text2)">(n=' + v + ')</span>'; };
   var head = function (t) { return '<div style="font-weight:600; color:var(--accent); margin:12px 0 6px">' + t + '</div>'; };
@@ -352,19 +371,19 @@ function buildDecLegend(d, suffix, source, showSite) {
 
   s += head('Focal depth');
   s += '<div style="font-size:11px; color:var(--text2); margin:-2px 0 6px; font-style:italic">' +
-       'Catalog distribution (USGS classes) — not drawn on map; shown on click.</div>';
+       'Catalog distribution (project convention, uniform across pages) — not drawn on map; shown on click.</div>';
   depthRows.forEach(function (r) {
     s += '<div style="display:flex; align-items:center; margin:4px 0">' +
          '<span style="width:14px; height:14px; border-radius:2px; background:' + r.c +
          '; display:inline-block; margin-right:8px; flex-shrink:0"></span>' +
-         '<span>' + r.label + nTxt(r.n) + '</span></div>';
+         '<span>' + escapeHtml(r.label) + nTxt(r.n) + '</span></div>';
   });
   if (dc.unknown) {
     s += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown + ' event(s) without depth.</div>';
   }
 
   s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border); color:var(--text); font-size:12px">';
-  s += '<div>Source: ' + (source || 'Uploaded catalog') + '</div>';
+  s += '<div>Source: ' + escapeHtml(String(source || 'Uploaded catalog')) + '</div>';
   if (showSite) s += '<div>Radius: 300 km</div>';
   s += '<div>Total events: ' + (d.n_total != null ? d.n_total : '') + '</div>';
   s += '<div>Period: ' + (d.catalog_period || '—') + '</div>';
@@ -525,6 +544,9 @@ async function runDeclustering() {
   fd.append('use_gk', document.getElementById('dec-gk').checked ? '1' : '0');
   fd.append('use_gr', document.getElementById('dec-gr').checked ? '1' : '0');
   fd.append('use_uh', document.getElementById('dec-uh').checked ? '1' : '0');
+  fd.append('dedup', document.getElementById('dec-dedup').checked ? '1' : '0');
+  fd.append('harmonize_coeffs', document.getElementById('dec-harmonize').value);
+  fd.append('mag_type_col', document.getElementById('dec-magtype').value);
 
   busy('dec-run', 'dec-spin', true);
   try {
@@ -543,13 +565,15 @@ async function runDeclustering() {
     // ── Metrics ──
     var html = '<div class="result-card"><h3>Results</h3>';
     html += '<div class="metrics">';
-    html += '<div class="metric"><div class="value">' + d.n_total + '</div><div class="label">Total Events</div></div>';
+    html += '<div class="metric"><div class="value">' + d.n_input + '</div><div class="label">Input Events</div></div>';
+    html += '<div class="metric"><div class="value">' + d.n_total + '</div><div class="label">After Steps 1–2</div></div>';
     d.methods_used.forEach(function(m) {
       var s = d.method_stats[m];
       html += '<div class="metric"><div class="value">' + s.mainshocks + '</div><div class="label">' + methodNames[m] + '</div></div>';
     });
     html += '<div class="metric"><div class="value">' + d.n_within_300_main + '</div><div class="label">Mainshocks (300 km)</div></div>';
     html += '</div>';
+    html += buildPipelineNotes(d);
 
     html += '<h2>Decluster Windows (Distance &amp; Time vs Magnitude)</h2>';
     html += plotHTML(d.plot_windows, 'decluster_windows.png');
@@ -684,7 +708,7 @@ async function runCompleteness() {
     html += '</div>';
 
     d.sections.forEach(function(sec) {
-      html += '<hr><h2>' + sec.label + ' (' + sec.count + ' events)</h2>';
+      html += '<hr><h2>' + escapeHtml(String(sec.label)) + ' (' + sec.count + ' events)</h2>';
 
       if (sec.auto_table && sec.auto_table.length) {
         html += '<h4>Automated Completeness (Stepp 1972)</h4>';
@@ -699,12 +723,12 @@ async function runCompleteness() {
         }), ['Year', 'Magnitude']);
       }
       if (sec.stepp_error) {
-        html += '<p style="color:var(--warn)">Stepp error: ' + sec.stepp_error + '</p>';
+        html += '<p style="color:var(--warn)">Stepp error: ' + escapeHtml(String(sec.stepp_error)) + '</p>';
       }
 
       sec.plots.forEach(function(p) {
         var fname = p.title.replace(/[^a-zA-Z0-9]/g, '_') + '.png';
-        html += '<h4>' + p.title + '</h4>' + plotHTML(p.plot, fname);
+        html += '<h4>' + escapeHtml(String(p.title)) + '</h4>' + plotHTML(p.plot, fname);
       });
     });
 
@@ -730,6 +754,9 @@ async function runGR() {
   fd.append('mc', document.getElementById('gr-mc').value);
   fd.append('m_limit', document.getElementById('gr-mlimit').value);
   fd.append('m_max', document.getElementById('gr-mmax').value);
+  fd.append('dedup', document.getElementById('gr-dedup').checked ? '1' : '0');
+  fd.append('decluster_first', document.getElementById('gr-decluster').checked ? '1' : '0');
+  fd.append('compl_whole', document.getElementById('gr-compl').value);
 
   busy('gr-run', 'gr-spin', true);
   try {
@@ -743,10 +770,11 @@ async function runGR() {
       '<div class="result-card">' +
       '<div class="metrics">' +
       '  <div class="metric"><div class="value">' + d.a_value + '</div><div class="label">a-value</div></div>' +
-      '  <div class="metric"><div class="value">' + d.b_value + '</div><div class="label">b-value</div></div>' +
-      '  <div class="metric"><div class="value">' + d.duration + ' yr</div><div class="label">Duration</div></div>' +
-      '  <div class="metric"><div class="value">' + d.n_events + '</div><div class="label">Events >= Mc</div></div>' +
+      '  <div class="metric"><div class="value">' + d.b_value + ' &plusmn; ' + d.b_stderr + '</div><div class="label">b-value (Aki / Shi&ndash;Bolt)</div></div>' +
+      '  <div class="metric"><div class="value">' + (d.completeness_used ? 'per level' : d.duration + ' yr') + '</div><div class="label">Duration</div></div>' +
+      '  <div class="metric"><div class="value">' + d.n_events + '</div><div class="label">Events in fit</div></div>' +
       '</div>' +
+      buildPipelineNotes(d) +
       plotHTML(d.plot, 'GR_recurrence.png') +
       '<button class="btn btn-secondary" style="margin-top:8px" onclick="downloadBlob(window._grCSV,\'GR_rates.csv\')">Download Rates CSV</button>' +
       '</div>';
@@ -774,6 +802,8 @@ async function runMFD() {
   fd.append('compl_shallow', document.getElementById('mfd-shallow').value);
   fd.append('compl_mid', document.getElementById('mfd-mid').value);
   fd.append('compl_deep', document.getElementById('mfd-deep').value);
+  fd.append('dedup', document.getElementById('mfd-dedup').checked ? '1' : '0');
+  fd.append('decluster_first', document.getElementById('mfd-decluster').checked ? '1' : '0');
 
   busy('mfd-run', 'mfd-spin', true);
   try {
@@ -787,10 +817,11 @@ async function runMFD() {
       '<div class="metrics">' +
       '  <div class="metric"><div class="value">' + d.total_events + '</div><div class="label">Total Events</div></div>' +
       '  <div class="metric"><div class="value">' + d.a_value + '</div><div class="label">a-value</div></div>' +
-      '  <div class="metric"><div class="value">' + d.b_value + '</div><div class="label">b-value</div></div>' +
+      '  <div class="metric"><div class="value">' + d.b_value + ' &plusmn; ' + d.b_stderr + '</div><div class="label">b-value (combined)</div></div>' +
       '  <div class="metric"><div class="value">' + d.duration + ' yr</div><div class="label">Duration</div></div>' +
       '</div>';
 
+    html += buildPipelineNotes(d);
     html += plotHTML(d.plot, 'MFD_combined.png');
 
     d.depth_plots.forEach(function (p) {
@@ -837,11 +868,9 @@ async function runMmax() {
   fd.append('mag_col', document.getElementById('mmax-mag').value);
   fd.append('time_col', document.getElementById('mmax-time').value);
   fd.append('b_value', document.getElementById('mmax-bval').value);
-  fd.append('sigma_b', document.getElementById('mmax-sigmab').value);
   fd.append('m_min', document.getElementById('mmax-mmin').value);
-  fd.append('input_mmax', document.getElementById('mmax-inputmmax').value);
-  fd.append('mmax_sigma', document.getElementById('mmax-sigma').value);
-  fd.append('n_bootstraps', document.getElementById('mmax-nboot').value);
+  fd.append('dedup', document.getElementById('mmax-dedup').checked ? '1' : '0');
+  fd.append('decluster_first', document.getElementById('mmax-decluster').checked ? '1' : '0');
 
   busy('mmax-run', 'mmax-spin', true);
   try {
@@ -854,11 +883,14 @@ async function runMmax() {
     var html = '<div class="result-card">';
     html += '<div class="metrics">';
     html += '<div class="metric"><div class="value">' + res.observed_mmax + '</div><div class="label">Observed Mmax</div></div>';
-    html += '<div class="metric"><div class="value">' + res.mmax_plus_05 + '</div><div class="label">Mmax + 0.5</div></div>';
-    html += '<div class="metric"><div class="value">' + res.n_events + '</div><div class="label">Events</div></div>';
-    html += '<div class="metric"><div class="value">' + res.mag_range + '</div><div class="label">Mag Range</div></div>';
+    html += '<div class="metric"><div class="value">' + res.mmax_kijko_sellevoll + '</div><div class="label">Kijko&ndash;Sellevoll Mmax</div></div>';
+    html += '<div class="metric"><div class="value">+' + res.ks_increment + '</div><div class="label">K&ndash;S increment</div></div>';
+    html += '<div class="metric"><div class="value">' + res.b_used + (res.b_stderr != null ? ' &plusmn; ' + res.b_stderr : '') + '</div><div class="label">b (' + escapeHtml(String(res.b_source)) + ')</div></div>';
+    html += '<div class="metric"><div class="value">' + res.n_above_mmin + '</div><div class="label">Events &ge; Mmin ' + res.m_min + '</div></div>';
+    html += '<div class="metric"><div class="value">' + escapeHtml(String(res.mag_range)) + '</div><div class="label">Mag Range</div></div>';
     html += '</div>';
 
+    html += buildPipelineNotes(d);
     html += '<h2>Magnitude-Time Distribution</h2>' + plotHTML(d.plot_scatter, 'mmax_scatter.png');
     html += '<h2>Cumulative Moment Release</h2>' + plotHTML(d.plot_moment, 'cumulative_moment.png');
     html += '</div>';

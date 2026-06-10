@@ -3,7 +3,7 @@
 **Status: PASS**
 
 - Source: `Earthquake Catalogue of the Philippines.xlsx` (sha256 `e2a22971d6f98dfa...`)
-- Generated: 2026-06-10T12:19:42.099221+00:00
+- Generated: 2026-06-10T15:27:37.288549+00:00
 
 ## Counts
 - Events in catalog.json: **3577**

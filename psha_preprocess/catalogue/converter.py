@@ -81,7 +81,6 @@ def read_phivolcs_excel(raw_bytes):
     mag = pd.Series(np.nan, index=result.index)
     for pref in ["Ml", "Mb", "Ms", "Mw"]:  # last wins = highest priority
         if pref in result.columns:
-            mag = mag.fillna(result[pref])
             mag = result[pref].combine_first(mag)
     result["_magnitude"] = mag
 

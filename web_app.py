@@ -23,10 +23,13 @@ import matplotlib.pyplot as plt
 
 from flask import Flask, render_template, request, jsonify, send_file
 
+from psha_preprocess.catalogue import pipeline as pl
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = None
-app.config["MAX_FORM_MEMORY_SIZE"] = None
-app.config["MAX_FORM_PARTS"] = None
+# Upload caps (CODE_REVIEW C1): unbounded uploads invite memory-exhaustion DoS.
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+app.config["MAX_FORM_MEMORY_SIZE"] = 50 * 1024 * 1024
+app.config["MAX_FORM_PARTS"] = 1000
 
 APP_VERSION = "1.0.0"
 
@@ -48,13 +51,15 @@ if not MAPBOX_TOKEN and _token_file.exists():
 # ─────────────────────────────────────────────
 def read_csv_from_upload(file_storage) -> pd.DataFrame:
     raw = file_storage.read()
-    for sep in [",", ";", "\t", "|"]:
-        try:
-            df = pd.read_csv(io.BytesIO(raw), sep=sep)
-            if df.shape[1] >= 2:
-                return df
-        except Exception:
-            pass
+    # csv.Sniffer-based separator detection (CODE_REVIEW B4): trying fixed
+    # separators in order can silently mis-parse e.g. semicolon files with
+    # embedded commas.
+    try:
+        df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python")
+        if df.shape[1] >= 2:
+            return df
+    except (pd.errors.ParserError, UnicodeDecodeError, ValueError):
+        pass
     return pd.read_csv(io.BytesIO(raw))
 
 
@@ -70,6 +75,16 @@ def df_to_csv_str(df: pd.DataFrame) -> str:
     return df.to_csv(index=False)
 
 
+def to_datetime_safe(s: pd.Series) -> pd.Series:
+    """Parse datetimes tolerantly (mixed precisions/formats -> NaT, never raises)."""
+    for kwargs in ({"utc": True}, {"utc": True, "format": "mixed"}):
+        try:
+            return pd.to_datetime(s, errors="coerce", **kwargs)
+        except (ValueError, TypeError):
+            continue
+    return pd.Series(pd.NaT, index=s.index)
+
+
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
     rlat1, rlon1 = math.radians(lat1), math.radians(lon1)
@@ -77,6 +92,143 @@ def haversine_km(lat1, lon1, lat2, lon2):
     dlat, dlon = rlat2 - rlat1, rlon2 - rlon1
     a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+# ── Focal-depth convention (single project-wide taxonomy, CODE_REVIEW A6) ──
+# One set of class bounds shared by the Catalog, Declustering, Completeness
+# (as defaults) and MFD pages so results are comparable across pages.
+# The bounds are a project convention (the PSHA Reference Folder contains no
+# basis for any specific taxonomy); they keep the completeness page's
+# long-standing configurable defaults.
+DEPTH_BOUNDS_KM = (35.0, 70.0, 700.0)
+DEPTH_CLASS_LABELS = {
+    "shallow": f"Shallow (0–{DEPTH_BOUNDS_KM[0]:.0f} km)",
+    "intermediate": f"Mid-depth ({DEPTH_BOUNDS_KM[0]:.0f}–{DEPTH_BOUNDS_KM[1]:.0f} km)",
+    "deep": f"Deep ({DEPTH_BOUNDS_KM[1]:.0f}–{DEPTH_BOUNDS_KM[2]:.0f} km)",
+}
+DEPTH_CONVENTION_NOTE = (
+    f"Depth classes: shallow 0–{DEPTH_BOUNDS_KM[0]:.0f}, "
+    f"mid-depth {DEPTH_BOUNDS_KM[0]:.0f}–{DEPTH_BOUNDS_KM[1]:.0f}, "
+    f"deep {DEPTH_BOUNDS_KM[1]:.0f}–{DEPTH_BOUNDS_KM[2]:.0f} km "
+    "(project convention, uniform across pages)."
+)
+
+
+def depth_class_counts(depths) -> dict:
+    """Event counts per unified depth class; 'unknown' = missing/out of range."""
+    d = pd.to_numeric(pd.Series(depths), errors="coerce")
+    s0, s1, s2 = DEPTH_BOUNDS_KM
+    return {
+        "shallow": int(((d >= 0) & (d < s0)).sum()),
+        "intermediate": int(((d >= s0) & (d < s1)).sum()),
+        "deep": int(((d >= s1) & (d < s2)).sum()),
+        "unknown": int(len(d) - ((d >= 0) & (d < s2)).sum()),
+    }
+
+
+# ── Catalogue-preparation steps 1–3 (BBS Sec. 3.3.5 checklist, p. 68) ──
+def _parse_harmonize_coeffs(text):
+    """Parse 'scale,slope,intercept' lines -> ({scale: (slope, intercept)}, bad_lines)."""
+    coeffs, bad = {}, []
+    for line in text.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 3 or not parts[0]:
+            if line.strip():
+                bad.append(line.strip())
+            continue
+        try:
+            coeffs[parts[0]] = (float(parts[1]), float(parts[2]))
+        except ValueError:
+            bad.append(line.strip())
+    return coeffs, bad
+
+
+def _has_datetime_time(cat) -> bool:
+    return "_time" in cat.columns and np.issubdtype(
+        np.asarray(cat["_time"].values).dtype, np.datetime64)
+
+
+def _apply_pipeline_pre_steps(cat, form, notes):
+    """Steps 1–2 of the catalogue-preparation chain, in order.
+
+    Step 1 harmonize to Mw (BBS p. 69) — only with user-supplied
+    'scale,slope,intercept' coefficient lines (Philippines relations are not
+    in the PSHA Reference Folder, so none are baked in).
+    Step 2 remove duplicates (BBS p. 68) — default ON, needs lat/lon and a
+    datetime time column.
+
+    Returns the (possibly filtered) catalogue; appends QA/QC lines to `notes`.
+    Raises ValueError on unusable harmonization input.
+    """
+    text = form.get("harmonize_coeffs", "").strip()
+    if text:
+        coeffs, bad = _parse_harmonize_coeffs(text)
+        scale_col = form.get("mag_type_col", "mag_type")
+        if not coeffs:
+            raise ValueError(
+                "Harmonization coefficients given but no 'scale,slope,intercept' "
+                "line could be parsed")
+        if scale_col not in cat.columns:
+            raise ValueError(
+                f"Harmonization needs a magnitude-scale column '{scale_col}' "
+                "(set mag_type_col)")
+        mw, conv = pl.harmonize_to_mw(
+            cat["_mag"].values, cat[scale_col].astype(str).values, coeffs)
+        cat = cat.copy()
+        cat["_mag"] = mw
+        cat["mag_mw"] = mw  # propagated to CSV downloads
+        notes.append(
+            f"Step 1 harmonization: {int(conv.sum())} magnitudes converted to Mw "
+            f"with user-supplied coefficients ({', '.join(sorted(coeffs))}); "
+            f"{int((~conv).sum())} left unchanged (BBS p. 69 — coefficients must "
+            "be region-specific and cited by the user).")
+        if bad:
+            notes.append(f"Harmonization: {len(bad)} unparsable line(s) ignored.")
+    else:
+        notes.append(
+            "Step 1 harmonization: NOT applied — no conversion coefficients "
+            "supplied; 'mag' stays preferred-scale, unconverted (BBS p. 69).")
+
+    if form.get("dedup", "1") == "1":
+        if {"_lat", "_lon"}.issubset(cat.columns) and _has_datetime_time(cat):
+            t_s = _times_to_days(cat["_time"]) * 86400.0
+            keep = pl.remove_duplicates(
+                t_s, cat["_lat"].values, cat["_lon"].values, cat["_mag"].values)
+            n_dup = int((~keep).sum())
+            cat = cat[keep].reset_index(drop=True)
+            notes.append(f"Step 2 duplicates: {n_dup} removed (BBS p. 68).")
+        else:
+            notes.append(
+                "Step 2 duplicates: skipped — needs lat/lon columns and a "
+                "datetime time column.")
+    else:
+        notes.append(
+            "Step 2 duplicates: disabled by user (BBS p. 68: each event must "
+            "be represented only once).")
+    return cat
+
+
+def _maybe_decluster_first(cat, form, notes):
+    """Optional step 3 for the rate-fitting pages (GR/MFD/Mmax).
+
+    BBS p. 68: Poisson-rate estimation requires removing dependent events;
+    p. 92: estimation 'starts by taking a declustered seismicity catalog'.
+    GK windows, mainshock = largest event of the cluster.
+    """
+    if form.get("decluster_first", "0") != "1":
+        return cat, False
+    if not ({"_lat", "_lon"}.issubset(cat.columns) and _has_datetime_time(cat)):
+        notes.append(
+            "Step 3 declustering: requested but skipped — needs lat/lon "
+            "columns and a datetime time column.")
+        return cat, False
+    is_main = _run_decluster(cat, "gk")
+    n_dep = int((~is_main).sum())
+    cat = cat[is_main].reset_index(drop=True)
+    notes.append(
+        f"Step 3 declustering (GK windows, mainshock = largest in cluster): "
+        f"{n_dep} fore/aftershocks removed (BBS pp. 73, 75).")
+    return cat, True
 
 
 # ── Default catalog (PHIVOLCS JSON produced by scripts/convert_catalogue.py) ──
@@ -155,7 +307,6 @@ def api_catalog_info():
     events = payload["events"]
 
     mags = np.array([ev["mag"] for ev in events if ev["mag"] is not None], dtype=float)
-    depths = np.array([ev["depth_km"] for ev in events if ev["depth_km"] is not None], dtype=float)
     mag_bins = {
         "lt4": int((mags < 4.0).sum()),
         "m4": int(((mags >= 4.0) & (mags < 5.0)).sum()),
@@ -163,12 +314,7 @@ def api_catalog_info():
         "m6": int(((mags >= 6.0) & (mags < 7.0)).sum()),
         "ge7": int((mags >= 7.0).sum()),
     }
-    depth_classes = {
-        "shallow": int((depths < 70).sum()),
-        "intermediate": int(((depths >= 70) & (depths < 300)).sum()),
-        "deep": int((depths >= 300).sum()),
-        "unknown": int(len(events) - len(depths)),
-    }
+    depth_classes = depth_class_counts([ev["depth_km"] for ev in events])
 
     audit = None
     audit_path = REPORTS_DIR / "audit.json"
@@ -199,6 +345,8 @@ def api_catalog_info():
         notes=meta["notes"],
         mag_bins=mag_bins,
         depth_classes=depth_classes,
+        depth_class_labels=DEPTH_CLASS_LABELS,
+        depth_convention_note=DEPTH_CONVENTION_NOTE,
         n_total=meta["total_events"],
         n_excluded_from_analysis=n_no_dt,
         audit=audit,
@@ -206,53 +354,27 @@ def api_catalog_info():
 
 
 # ── Declustering ──────────────────────────────
-def _decluster_window_calc(mags_arr, method):
-    """Compute space (km) and time (days) windows for given magnitudes."""
-    M = np.asarray(mags_arr, dtype=float)
-    DAYS = 364.75
-    if method == "gk":
-        sw_space = np.power(10.0, 0.1238 * M + 0.983)
-        sw_time = np.power(10.0, 0.032 * M + 2.7389) / DAYS
-        sw_time[M < 6.5] = np.power(10.0, 0.5409 * M[M < 6.5] - 0.547) / DAYS
-    elif method == "gr":
-        sw_space = np.exp(1.77 + np.sqrt(0.037 + 1.02 * M))
-        sw_time = np.abs(np.exp(-3.95 + np.sqrt(0.62 + 17.32 * M))) / DAYS
-        sw_time[M >= 6.5] = np.power(10.0, 2.8 + 0.024 * M[M >= 6.5]) / DAYS
-    elif method == "uh":
-        sw_space = np.exp(-1.024 + 0.804 * M)
-        sw_time = np.exp(-2.87 + 1.235 * M) / DAYS
-    else:
-        raise ValueError(f"Unknown method: {method}")
-    return sw_space, sw_time  # km, fractional years
+def _times_to_days(time_series) -> np.ndarray:
+    """Datetime series -> float days since epoch (keeps fractional days)."""
+    t_ns = np.asarray(time_series.values, dtype="datetime64[ns]").astype(np.int64)
+    return t_ns / (1e9 * 86400.0)
 
 
 def _run_decluster(cat, method):
-    """Run Gardner-Knopoff declustering with specified window method.
+    """Window declustering, mainshock = largest event of the cluster.
+
+    Delegates to psha_preprocess.catalogue.pipeline.gardner_knopoff_decluster
+    (BBS Sec. 3.3.5, pp. 73, 75): events are classified largest-magnitude-
+    first so a later, larger event is never deleted as the "aftershock" of a
+    smaller one, foreshocks are removed too, and the time window keeps its
+    fractional-day part (CODE_REVIEW A1).
 
     Returns boolean array (True = mainshock).
     """
-    n = len(cat)
-    lats = cat["_lat"].values
-    lons = cat["_lon"].values
-    mags = cat["_mag"].values
-    times = cat["_time"].values
-
-    sw_space, sw_time_yr = _decluster_window_calc(mags, method)
-    sw_time_days = sw_time_yr * 364.75
-
-    is_main = np.ones(n, dtype=bool)
-    for i in range(n):
-        if not is_main[i]:
-            continue
-        t_win_td = np.timedelta64(int(sw_time_days[i]), "D")
-        for j in range(i + 1, n):
-            if not is_main[j]:
-                continue
-            if times[j] - times[i] > t_win_td:
-                break
-            if haversine_km(lats[i], lons[i], lats[j], lons[j]) <= sw_space[i]:
-                is_main[j] = False
-    return is_main
+    return pl.gardner_knopoff_decluster(
+        _times_to_days(cat["_time"]),
+        cat["_lat"].values, cat["_lon"].values, cat["_mag"].values,
+        method=method)
 
 
 def _plot_decluster_map(cat, is_main, site_lat, site_lon, label, color):
@@ -279,7 +401,7 @@ def _plot_decluster_map(cat, is_main, site_lat, site_lon, label, color):
     return fig
 
 
-def _plot_decluster_time(cat, results, time_col):
+def _plot_decluster_time(cat, results):
     """Generate magnitude-time scatter comparing all methods with original."""
     dt = cat["_time"]
     dec_year = dt.dt.year + dt.dt.dayofyear / 365.25
@@ -311,13 +433,11 @@ def _plot_window_comparison(methods):
     colors = {"gk": "green", "gr": "red", "uh": "blue"}
     markers = {"gk": "s", "gr": "^", "uh": "o"}
     labels = {"gk": "Gardner & Knopoff (1974)", "gr": "Gruenthal", "uh": "Uhrhammer (1986)"}
-    DAYS = 364.75
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     for m in methods:
-        sw_space, sw_time_yr = _decluster_window_calc(mags, m)
-        sw_time_days = sw_time_yr * DAYS
+        sw_space, sw_time_days = pl.decluster_windows(mags, m)
         ax1.semilogy(mags, sw_space, color=colors[m], marker=markers[m],
                      markersize=5, label=labels[m], linewidth=1)
         ax2.semilogy(mags, sw_time_days, color=colors[m], marker=markers[m],
@@ -402,9 +522,19 @@ def api_declustering():
         cat["_time"] = pd.to_datetime(cat[time_col], errors="coerce")
 
     cat = cat.dropna(subset=["_lat", "_lon", "_mag", "_time"]).sort_values("_time").reset_index(drop=True)
+    n_input = len(cat)
+    if n_input == 0:
+        return jsonify(error="No valid rows after parsing"), 400
+
+    # ── Pipeline steps 1–2 before declustering (BBS Sec. 3.3.5, p. 68) ──
+    pipeline_notes = []
+    try:
+        cat = _apply_pipeline_pre_steps(cat, request.form, pipeline_notes)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
     n = len(cat)
     if n == 0:
-        return jsonify(error="No valid rows after parsing"), 400
+        return jsonify(error="No valid rows after pipeline steps 1–2"), 400
 
     # ── Run declustering for each method ──
     method_labels = {"gk": "Gardner & Knopoff (1974)", "gr": "Grünthal", "uh": "Uhrhammer (1986)"}
@@ -449,11 +579,13 @@ def api_declustering():
         fig_mt = _plot_mag_time_scatter(cat, is_main, method_labels[m])
         method_magtime[m] = fig_to_b64(fig_mt)
 
-        out_cols = [c for c in df.columns]
+        out_cols = [c for c in df.columns if c in cat.columns]
+        if "mag_mw" in cat.columns:
+            out_cols = out_cols + ["mag_mw"]
         method_csvs[m] = cat[is_main][out_cols].to_csv(index=False)
 
     # ── Time-magnitude comparison plot (overlay) ──
-    fig_time = _plot_decluster_time(cat, results, time_col)
+    fig_time = _plot_decluster_time(cat, results)
 
     # ── 300km filter (use first method for maps/tables) ──
     primary = methods[0]
@@ -477,24 +609,18 @@ def api_declustering():
     table_original = cat[table_display_cols].head(200).fillna("").to_dict("records")
 
     # ── QAQC summary ──
-    qaqc_parts = [f"Source: {src_label}.", f"Catalog: {n} events."]
+    qaqc_parts = [f"Source: {src_label}.", f"Input: {n_input} events."]
+    qaqc_parts.extend(pipeline_notes)
+    qaqc_parts.append(f"Catalog after steps 1–2: {n} events.")
     for m in methods:
         s = method_stats[m]
-        qaqc_parts.append(f"{method_labels[m]}: {s['mainshocks']} mainshocks, "
-                          f"{s['aftershocks']} aftershocks removed.")
+        qaqc_parts.append(f"Step 3 {method_labels[m]}: {s['mainshocks']} mainshocks, "
+                          f"{s['aftershocks']} fore/aftershocks removed.")
     qaqc_parts.append(f"Within 300km ({method_labels[primary]}): "
                       f"{len(within_300_main)} mainshocks")
 
-    # ── Legend counts (focal depth + magnitude bins) ──
-    # Focal-depth classes per USGS convention:
-    #   shallow 0–70 km, intermediate 70–300 km, deep 300–700 km.
-    _d = cat["_depth"]
-    depth_classes = {
-        "shallow": int((_d < 70).sum()),
-        "intermediate": int(((_d >= 70) & (_d < 300)).sum()),
-        "deep": int((_d >= 300).sum()),
-        "unknown": int(_d.isna().sum()),
-    }
+    # ── Legend counts (focal depth + magnitude bins, unified convention) ──
+    depth_classes = depth_class_counts(cat["_depth"])
     mag_bins = {
         "lt4": int((cat["_mag"] < 4.0).sum()),
         "m4": int(((cat["_mag"] >= 4.0) & (cat["_mag"] < 5.0)).sum()),
@@ -517,6 +643,8 @@ def api_declustering():
         method_csvs=method_csvs,
         methods_used=methods,
         n_total=n,
+        n_input=n_input,
+        pipeline_notes=pipeline_notes,
         n_within_300_main=int(len(within_300_main)),
         table_cols=table_display_cols,
         table_original=table_original,
@@ -524,6 +652,8 @@ def api_declustering():
         map_mainshocks=map_mainshocks,
         map_300km=map_300km,
         depth_classes=depth_classes,
+        depth_class_labels=DEPTH_CLASS_LABELS,
+        depth_convention_note=DEPTH_CONVENTION_NOTE,
         mag_bins=mag_bins,
         catalog_period=period_str,
         source=src_label,
@@ -669,7 +799,8 @@ def api_completeness():
             if mode == "both" and manual_ct is not None:
                 from psha_preprocess.catalogue.completeness import _build_step_curve
                 ax = fig_dens.axes[0]
-                sx, sy = _build_step_curve(manual_ct, years.min(), years.max(), mags.max())
+                sx, sy = _build_step_curve(manual_ct, years.min(), years.max(),
+                                           dens_time_bin)
                 ax.plot(sx, sy, "w--", linewidth=2, label="Manual")
                 ax.legend(fontsize=8)
 
@@ -701,10 +832,13 @@ def api_completeness():
 def api_gutenberg_richter():
     mag_col = request.form.get("mag_col", "mag")
     time_col = request.form.get("time_col", "time")
+    lat_col = request.form.get("lat_col", "latitude")
+    lon_col = request.form.get("lon_col", "longitude")
     dm = float(request.form.get("dm", 0.1))
     Mc = float(request.form.get("mc", 4.45))
     M_LIMIT = float(request.form.get("m_limit", 5.0))
     M_MAX = float(request.form.get("m_max", 8.0))
+    compl_pairs = _parse_compl_text(request.form.get("compl_whole", ""))
 
     df, src_label, err = get_catalog_input(request)
     if err:
@@ -712,34 +846,86 @@ def api_gutenberg_richter():
 
     cat = df.copy()
     cat["_mag"] = pd.to_numeric(cat[mag_col], errors="coerce")
-    try:
-        cat["_time"] = pd.to_datetime(cat[time_col])
-        cat["_year"] = cat["_time"].dt.year + cat["_time"].dt.dayofyear / 365.25
-    except Exception:
+    if lat_col in cat.columns and lon_col in cat.columns:
+        cat["_lat"] = pd.to_numeric(cat[lat_col], errors="coerce")
+        cat["_lon"] = pd.to_numeric(cat[lon_col], errors="coerce")
+    parsed = to_datetime_safe(cat[time_col])
+    if parsed.notna().any():
+        cat["_time"] = parsed
+        cat["_year"] = parsed.dt.year + parsed.dt.dayofyear / 365.25
+    else:
         cat["_year"] = pd.to_numeric(cat[time_col], errors="coerce")
 
     cat = cat.dropna(subset=["_mag", "_year"])
-    T = cat["_year"].max() - cat["_year"].min()
-    if T <= 0:
+    n_input = len(cat)
+    if n_input == 0:
+        return jsonify(error="No valid rows after parsing"), 400
+
+    # ── Pipeline steps 1–3 before rate fitting (BBS Sec. 3.3.5, p. 68) ──
+    notes, warnings = [], []
+    try:
+        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    cat, declustered = _maybe_decluster_first(cat, request.form, notes)
+    if not declustered:
+        warnings.append(
+            "Input was not declustered here — GR rate estimation assumes a "
+            "declustered (Poisson) catalogue (BBS pp. 68, 92). Upload a "
+            "declustered CSV or tick 'Decluster first (GK)'.")
+
+    T = float(cat["_year"].max() - cat["_year"].min())
+    if not np.isfinite(T) or T <= 0:
         return jsonify(error="Catalog duration is zero"), 400
 
     mags = cat["_mag"].values
+    years = cat["_year"].values
+    end_year = float(cat["_year"].max())
 
     mmin = np.floor(mags.min() / dm) * dm
     edges = np.arange(mmin, M_MAX + dm, dm)
-    inc_counts, _ = np.histogram(mags, bins=edges)
     m_centers = edges[:-1] + dm / 2.0
-    cum_counts = inc_counts[::-1].cumsum()[::-1]
 
-    inc_rates = inc_counts / T
-    cum_rates = cum_counts / T
+    if compl_pairs:
+        # Events counted only inside their bin's period of completeness
+        # (BBS Fig. 3.10 p. 78; Completeness Levels pp. 71–72).
+        inc_rates = pl.completeness_rates(mags, years, compl_pairs, edges, end_year)
+        notes.append(f"Rates: completeness-corrected, {len(compl_pairs)} levels "
+                     "(BBS Fig. 3.10, p. 78).")
+    else:
+        inc_counts, _ = np.histogram(mags, bins=edges)
+        inc_rates = inc_counts / T
+        warnings.append(
+            "No completeness table supplied — rates assume the catalogue is "
+            "uniformly complete over its whole span (BBS pp. 71–72).")
+    cum_rates = inc_rates[::-1].cumsum()[::-1]
 
-    m_fit = mags[mags >= Mc]
+    # b-value: Aki MLE (Lamessa et al., Eq. 21), error per Shi & Bolt (Eq. 22).
+    # The sample is restricted to the period where M >= Mc is complete so the
+    # MLE's uniform-completeness premise holds.
+    if compl_pairs:
+        cy = pl.completeness_year_for(compl_pairs, Mc)
+        if cy is None:
+            return jsonify(error=f"Mc={Mc} is below the lowest completeness level"), 400
+        fit_mask = (mags >= Mc) & (years >= cy)
+        notes.append(f"b-value sample: M>={Mc} from {int(cy)} on "
+                     f"({int(fit_mask.sum())} events).")
+    else:
+        fit_mask = mags >= Mc
+    m_fit = mags[fit_mask]
     if len(m_fit) < 5:
         return jsonify(error="Not enough events above Mc"), 400
 
-    mean_mag = np.mean(m_fit)
-    b_value = np.log10(np.e) / (mean_mag - (Mc - dm / 2))
+    bin_corr = request.form.get("bin_correction", "0") == "1"
+    b_value, b_stderr = pl.b_value_aki(m_fit, Mc, dm=dm if bin_corr else 0.0)
+    if not np.isfinite(b_value):
+        return jsonify(error="b-value could not be estimated from the sample"), 400
+    if bin_corr:
+        notes.append("b-value: Aki MLE with dm/2 binning correction — the "
+                     "correction has no basis in the Reference Folder.")
+    else:
+        notes.append("b-value: Aki MLE without binning correction "
+                     "(Lamessa et al., Eqs. 21–22).")
 
     idx_ref = np.where(m_centers >= Mc)[0][0]
     Nref = cum_rates[idx_ref]
@@ -753,13 +939,15 @@ def api_gutenberg_richter():
     model_inc = np.maximum(cum_at_centers - cum_at_next, 1e-20)
 
     mask = (m_centers >= M_LIMIT) & (m_centers <= M_MAX)
+    obs_inc_mask = mask & (inc_rates > 0)
+    obs_cum_mask = mask & (cum_rates > 0)
 
     fig, ax = plt.subplots(figsize=(10, 7))
-    ax.semilogy(m_centers[mask], inc_rates[mask], "o", markersize=6,
+    ax.semilogy(m_centers[obs_inc_mask], inc_rates[obs_inc_mask], "o", markersize=6,
                 label="Observed Incremental Rate")
     ax.semilogy(m_centers[mask], model_inc[mask], "-", linewidth=1.5,
                 label="Model Incremental Rate")
-    ax.semilogy(m_centers[mask], cum_rates[mask], "s", markersize=6,
+    ax.semilogy(m_centers[obs_cum_mask], cum_rates[obs_cum_mask], "s", markersize=6,
                 label="Observed Cumulative Rate")
     ax.semilogy(m_grid, model_cum, "-", linewidth=2,
                 label="Model Cumulative Rate")
@@ -771,11 +959,12 @@ def api_gutenberg_richter():
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_xlim(M_LIMIT, M_MAX)
 
+    dur_line = "T varies by completeness level" if compl_pairs else f"T = {int(T)} years"
     eq_text = (
         r"$\log_{10}N(M \geq m) = a - bM$" "\n"
         f"a = {a_value:.3f}\n"
-        f"b = {b_value:.3f}\n"
-        f"T = {int(T)} years"
+        f"b = {b_value:.3f} ± {b_stderr:.3f}\n"
+        f"{dur_line}"
     )
     ax.text(0.02, 0.02, eq_text, transform=ax.transAxes, fontsize=10,
             verticalalignment="bottom",
@@ -787,15 +976,26 @@ def api_gutenberg_richter():
         "Inc_Rate": inc_rates[mask],
     }).to_csv(index=False)
 
+    qaqc_parts = [f"Source: {src_label}.", f"Input: {n_input} events."]
+    qaqc_parts.extend(notes)
+    qaqc_parts.extend(f"WARNING: {w}" for w in warnings)
+    qaqc_parts.append(f"GR: a={a_value:.4f}, b={b_value:.4f}±{b_stderr:.4f}, "
+                      f"Mc={Mc}, N(fit)={len(m_fit)}")
+
     return jsonify(
         plot=fig_to_b64(fig),
         a_value=round(a_value, 4),
         b_value=round(b_value, 4),
+        b_stderr=round(float(b_stderr), 4),
         duration=round(T, 1),
         n_events=int(len(m_fit)),
+        n_input=n_input,
+        completeness_used=bool(compl_pairs),
+        pipeline_notes=notes,
+        warnings=warnings,
         rates_csv=rates_csv,
         source=src_label,
-        qaqc=f"Source: {src_label}. GR: a={a_value:.4f}, b={b_value:.4f}, Mc={Mc}, T={T:.1f}yr, N={len(m_fit)}",
+        qaqc=" ".join(qaqc_parts),
     )
 
 
@@ -805,13 +1005,15 @@ def api_mfd():
     mag_col = request.form.get("mag_col", "mag")
     time_col = request.form.get("time_col", "time")
     depth_col = request.form.get("depth_col", "depth")
+    lat_col = request.form.get("lat_col", "latitude")
+    lon_col = request.form.get("lon_col", "longitude")
     dm = float(request.form.get("dm", 0.1))
     min_mag = float(request.form.get("min_mag", 4.5))
     max_mag = float(request.form.get("max_mag", 8.0))
 
     compl_texts = {
         "shallow": request.form.get("compl_shallow", ""),
-        "mid-depth": request.form.get("compl_mid", ""),
+        "intermediate": request.form.get("compl_mid", ""),
         "deep": request.form.get("compl_deep", ""),
     }
     compl_tables = {k: _parse_compl_text(v) for k, v in compl_texts.items()}
@@ -823,46 +1025,59 @@ def api_mfd():
     cat = df.copy()
     cat["_mag"] = pd.to_numeric(cat[mag_col], errors="coerce")
     cat["_depth"] = pd.to_numeric(cat[depth_col], errors="coerce")
-    try:
-        cat["_time"] = pd.to_datetime(cat[time_col], utc=True)
-        cat["_year"] = cat["_time"].dt.year
-    except Exception:
+    if lat_col in cat.columns and lon_col in cat.columns:
+        cat["_lat"] = pd.to_numeric(cat[lat_col], errors="coerce")
+        cat["_lon"] = pd.to_numeric(cat[lon_col], errors="coerce")
+    parsed = to_datetime_safe(cat[time_col])
+    if parsed.notna().any():
+        cat["_time"] = parsed
+        cat["_year"] = parsed.dt.year
+    else:
         cat["_year"] = pd.to_numeric(cat[time_col], errors="coerce")
 
     cat = cat.dropna(subset=["_mag", "_year", "_depth"])
+    n_input = len(cat)
+    if n_input == 0:
+        return jsonify(error="No valid rows after parsing"), 400
+
+    # ── Pipeline steps 1–3 before rate fitting (BBS Sec. 3.3.5, p. 68) ──
+    notes, warnings = [], []
+    try:
+        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    cat, declustered = _maybe_decluster_first(cat, request.form, notes)
+    if not declustered:
+        warnings.append(
+            "Input was not declustered here — MFD rates assume a declustered "
+            "(Poisson) catalogue (BBS pp. 68, 92). Upload a declustered CSV "
+            "or tick 'Decluster first (GK)'.")
+
     cat = cat[cat["_mag"] >= min_mag]
+    if cat.empty:
+        return jsonify(error="No events at or above min_mag"), 400
 
     year_min = int(cat["_year"].min())
     year_max = int(cat["_year"].max())
     T_total = max(year_max - year_min, 1)
 
+    # Unified focal-depth convention (CODE_REVIEW A6) — same classes on the
+    # Catalog, Declustering and Completeness (defaults) pages.
+    s0, s1, s2 = DEPTH_BOUNDS_KM
+
     def classify_depth(d):
-        if 0 <= d < 35:
+        if 0 <= d < s0:
             return "shallow"
-        if 35 <= d < 70:
-            return "mid-depth"
-        if 70 <= d < 700:
+        if s0 <= d < s1:
+            return "intermediate"
+        if s1 <= d < s2:
             return "deep"
         return None
 
     cat["_depth_class"] = cat["_depth"].apply(classify_depth)
     cat = cat.dropna(subset=["_depth_class"])
 
-    depth_labels = {
-        "shallow": "Shallow (0–35 km)",
-        "mid-depth": "Mid-depth (35–70 km)",
-        "deep": "Deep (70–700 km)",
-    }
-
-    def effective_duration(mag_val, compl_pairs, yr_max):
-        """Return the number of years the catalog is complete for this magnitude."""
-        if not compl_pairs:
-            return max(yr_max - year_min, 1)
-        compl_year = year_min  # default: catalog start
-        for yr, mg in sorted(compl_pairs, key=lambda x: x[1]):
-            if mg <= mag_val + dm / 2:
-                compl_year = yr
-        return max(yr_max - compl_year, 1)
+    depth_labels = DEPTH_CLASS_LABELS
 
     edges = np.arange(min_mag, max_mag + dm, dm)
     m_centers = edges[:-1] + dm / 2.0
@@ -871,7 +1086,7 @@ def api_mfd():
     oq_arbitrary = []
     all_rates = {}
 
-    for dkey in ["shallow", "mid-depth", "deep"]:
+    for dkey in ["shallow", "intermediate", "deep"]:
         label = depth_labels[dkey]
         subset = cat[cat["_depth_class"] == dkey]
         n = len(subset)
@@ -879,15 +1094,21 @@ def api_mfd():
             continue
 
         mags = subset["_mag"].values
+        years = subset["_year"].values
         compl_pairs = compl_tables.get(dkey, [])
+        if not compl_pairs:
+            # No table for this class: assume completeness over the whole
+            # span, stated explicitly so the assumption reaches the QA/QC log.
+            compl_pairs = [[year_min, min_mag]]
+            warnings.append(
+                f"{label}: no completeness table — rates assume uniform "
+                f"completeness from {year_min} (BBS pp. 71–72).")
 
-        inc_counts, _ = np.histogram(mags, bins=edges)
-
-        inc_rates = np.zeros(len(m_centers))
-        for i, mc in enumerate(m_centers):
-            dur = effective_duration(mc, compl_pairs, year_max)
-            inc_rates[i] = inc_counts[i] / dur
-
+        # A2 fix: an event is counted ONLY if it occurred on or after the
+        # completeness year of its magnitude bin, and the count is divided
+        # by that bin's complete duration (BBS Fig. 3.10 p. 78; pp. 71–72).
+        inc_rates = pl.completeness_rates(mags, years, compl_pairs, edges,
+                                          float(year_max))
         cum_rates = inc_rates[::-1].cumsum()[::-1]
 
         all_rates[dkey] = {
@@ -896,17 +1117,23 @@ def api_mfd():
             "count": n,
         }
 
-        m_fit = mags[mags >= min_mag]
+        # b-value sample restricted to the period where M >= min_mag is
+        # complete, so the Aki MLE premise holds (Lamessa et al., Eq. 21).
+        cy_fit = pl.completeness_year_for(compl_pairs, min_mag + dm / 2.0)
+        if cy_fit is None:
+            cy_fit = year_min
+        m_fit = mags[(mags >= min_mag) & (years >= cy_fit)]
         if len(m_fit) >= 5:
-            mean_m = np.mean(m_fit)
-            b_val = np.log10(np.e) / (mean_m - (min_mag - dm / 2))
+            b_val, b_err = pl.b_value_aki(m_fit, min_mag)
+            if not np.isfinite(b_val):
+                b_val, b_err = 0.0, 0.0
             idx_ref = 0
             Nref = cum_rates[idx_ref]
             a_val = np.log10(max(Nref, 1e-20)) + b_val * m_centers[idx_ref]
             m_grid = np.linspace(min_mag, max_mag, 300)
             model_cum = 10 ** (a_val - b_val * m_grid)
         else:
-            a_val, b_val = 0, 0
+            a_val, b_val, b_err = 0, 0, 0
             m_grid, model_cum = np.array([]), np.array([])
 
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -932,7 +1159,8 @@ def api_mfd():
         if len(m_fit) >= 5:
             eq_text = (
                 r"$\log_{10}N(M \geq m) = a - bM$" "\n"
-                f"a = {a_val:.3f}\nb = {b_val:.3f}\nT_eff varies by bin"
+                f"a = {a_val:.3f}\nb = {b_val:.3f} ± {b_err:.3f}\n"
+                "T_eff varies by bin"
             )
             ax.text(0.02, 0.02, eq_text, transform=ax.transAxes, fontsize=9,
                     verticalalignment="bottom",
@@ -965,8 +1193,8 @@ def api_mfd():
 
     # ── Combined MFD plot (all depth classes) ──
     fig, ax = plt.subplots(figsize=(10, 7))
-    colors = {"shallow": "#1f77b4", "mid-depth": "#ff7f0e", "deep": "#2ca02c"}
-    for dkey in ["shallow", "mid-depth", "deep"]:
+    colors = {"shallow": "#1f77b4", "intermediate": "#ff7f0e", "deep": "#2ca02c"}
+    for dkey in ["shallow", "intermediate", "deep"]:
         if dkey not in all_rates:
             continue
         r = all_rates[dkey]
@@ -992,19 +1220,23 @@ def api_mfd():
     fig.tight_layout()
     combined_plot = fig_to_b64(fig)
 
-    # ── Overall GR fit ──
+    # ── Overall GR fit (all classes combined) ──
     all_mags = cat["_mag"].values
     m_fit_all = all_mags[all_mags >= min_mag]
     if len(m_fit_all) >= 5:
-        mean_all = np.mean(m_fit_all)
-        b_all = np.log10(np.e) / (mean_all - (min_mag - dm / 2))
+        b_all, b_all_err = pl.b_value_aki(m_fit_all, min_mag)
+        if not np.isfinite(b_all):
+            b_all, b_all_err = 0.0, 0.0
         inc_all, _ = np.histogram(all_mags, bins=edges)
         cum_all = inc_all[::-1].cumsum()[::-1]
         cum_rate_all = cum_all / T_total
         Nref_all = cum_rate_all[0]
         a_all = np.log10(max(Nref_all, 1e-20)) + b_all * m_centers[0]
+        warnings.append(
+            f"Combined TruncatedGR fit uses the whole-span duration "
+            f"(T={T_total} yr) with no per-class completeness correction.")
     else:
-        a_all, b_all = 0, 0
+        a_all, b_all, b_all_err = 0, 0, 0
 
     truncgr_xml = (
         "<truncGutenbergRichterMFD\n"
@@ -1016,7 +1248,7 @@ def api_mfd():
     )
 
     csv_rows = [["magnitude", "depth_class", "inc_rate", "cum_rate"]]
-    for dkey in ["shallow", "mid-depth", "deep"]:
+    for dkey in ["shallow", "intermediate", "deep"]:
         if dkey not in all_rates:
             continue
         r = all_rates[dkey]
@@ -1036,20 +1268,32 @@ def api_mfd():
         oq_xml_parts.append("")
     oq_xml = "\n".join(oq_xml_parts)
 
+    qaqc_parts = [f"Source: {src_label}.", f"Input: {n_input} events."]
+    qaqc_parts.extend(notes)
+    qaqc_parts.extend(f"WARNING: {w}" for w in warnings)
+    qaqc_parts.append(DEPTH_CONVENTION_NOTE)
+    qaqc_parts.append(f"MFD: {len(cat)} events, dm={dm}, "
+                      f"a={a_all:.4f}, b={b_all:.4f}±{b_all_err:.4f}, T={T_total}yr")
+
     return jsonify(
         plot=combined_plot,
         depth_plots=depth_plots,
         total_events=len(cat),
+        n_input=n_input,
         a_value=round(a_all, 4),
         b_value=round(b_all, 4),
+        b_stderr=round(float(b_all_err), 4),
         duration=T_total,
+        pipeline_notes=notes,
+        warnings=warnings,
+        depth_class_labels=DEPTH_CLASS_LABELS,
+        depth_convention_note=DEPTH_CONVENTION_NOTE,
         oq_arbitrary=oq_arbitrary,
         oq_truncated_gr=truncgr_xml,
         oq_xml=oq_xml,
         rates_csv=rates_csv,
         source=src_label,
-        qaqc=f"Source: {src_label}. MFD: {len(cat)} events, dm={dm}, "
-             f"a={a_all:.4f}, b={b_all:.4f}, T={T_total}yr",
+        qaqc=" ".join(qaqc_parts),
     )
 
 
@@ -1058,64 +1302,144 @@ def api_mfd():
 # ─────────────────────────────────────────────
 @app.route("/api/max_magnitude", methods=["POST"])
 def api_max_magnitude():
+    mag_col = request.form.get("mag_col", "mag")
+    time_col = request.form.get("time_col", "time")
+    lat_col = request.form.get("lat_col", "latitude")
+    lon_col = request.form.get("lon_col", "longitude")
+    m_min = float(request.form.get("m_min", 4.5))
+    b_form = request.form.get("b_value", "").strip()
+
+    df, src_label, err = get_catalog_input(request)
+    if err:
+        return jsonify(error=err), 400
+    if mag_col not in df.columns or time_col not in df.columns:
+        return jsonify(error=f"Columns '{mag_col}'/'{time_col}' not found"), 400
+
+    # B1 fix: one frame, drop rows where either magnitude or time is invalid,
+    # sort by time — years and magnitudes stay aligned.
+    cat = df.copy()
+    cat["_mag"] = pd.to_numeric(cat[mag_col], errors="coerce")
+    if lat_col in cat.columns and lon_col in cat.columns:
+        cat["_lat"] = pd.to_numeric(cat[lat_col], errors="coerce")
+        cat["_lon"] = pd.to_numeric(cat[lon_col], errors="coerce")
+    parsed = to_datetime_safe(cat[time_col])
+    if parsed.notna().any():
+        cat["_time"] = parsed
+        cat["_year"] = parsed.dt.year + parsed.dt.dayofyear / 365.25
+    else:
+        cat["_year"] = pd.to_numeric(cat[time_col], errors="coerce")
+    cat = cat.dropna(subset=["_mag", "_year"]).sort_values("_year").reset_index(drop=True)
+    n_input = len(cat)
+    if n_input == 0:
+        return jsonify(error="No valid rows after parsing"), 400
+
+    # ── Pipeline steps 1–2 (BBS Sec. 3.3.5, p. 68) ──
+    notes, warnings = [], []
     try:
-        mag_col = request.form.get("mag_col", "mag")
-        time_col = request.form.get("time_col", "time")
+        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    cat, declustered = _maybe_decluster_first(cat, request.form, notes)
+    if not declustered:
+        warnings.append(
+            "Input was not declustered here — the Kijko–Sellevoll estimator "
+            "assumes a declustered catalogue complete above Mmin "
+            "(BBS p. 92; kijko2004.pdf).")
 
-        df, src_label, err = get_catalog_input(request)
-        if err:
-            return jsonify(error=err)
+    mag = cat["_mag"]
+    m_max_obs = float(mag.max())
+    m_sample = mag[mag >= m_min]
+    n_above = int(len(m_sample))
+    if n_above < 2:
+        return jsonify(error=f"Fewer than 2 events at or above Mmin={m_min}"), 400
+    if m_max_obs < m_min:
+        return jsonify(error=f"Observed maximum {m_max_obs} is below Mmin={m_min}"), 400
 
-        mag = pd.to_numeric(df[mag_col], errors="coerce").dropna()
-
-        cat_data = {"magnitude": mag.values, "year": np.ones(len(mag))}
+    # b-value: user-supplied, else Aki MLE on M >= Mmin (Lamessa et al., Eq. 21).
+    b_stderr = None
+    if b_form:
         try:
-            dt = pd.to_datetime(df[time_col], errors="coerce")
-            cat_data["year"] = dt.dt.year.values[:len(mag)]
-            cat_data["month"] = dt.dt.month.values[:len(mag)]
-            cat_data["day"] = dt.dt.day.values[:len(mag)]
-        except Exception:
-            cat_data["year"] = pd.to_numeric(df[time_col], errors="coerce").values[:len(mag)]
+            b_used = float(b_form)
+        except ValueError:
+            return jsonify(error=f"Invalid b-value '{b_form}'"), 400
+        if b_used <= 0:
+            return jsonify(error="b-value must be > 0"), 400
+        b_source = "user"
+        notes.append(f"b = {b_used:.3f} supplied by user.")
+    else:
+        b_used, b_stderr = pl.b_value_aki(m_sample.values, m_min)
+        if not np.isfinite(b_used):
+            return jsonify(error="b-value could not be estimated; supply one"), 400
+        b_source = "Aki MLE"
+        notes.append(
+            f"b = {b_used:.3f} ± {b_stderr:.3f} from Aki MLE on M>={m_min} "
+            "(Lamessa et al., Eqs. 21–22); assumes completeness above Mmin "
+            "over the whole span.")
 
-        from psha_preprocess.catalogue.checker import plot_magnitude_time_scatter
-        fig_scatter = plot_magnitude_time_scatter(df, time_col, mag_col)
-        plot_scatter = fig_to_b64(fig_scatter)
+    # A3 fix: Kijko–Sellevoll statistical Mmax (kijko2004.pdf, Eqs. 6–8,
+    # pp. 1659–1660) replaces the uncited flat 'observed + 0.5'.
+    mmax_ks = pl.kijko_sellevoll_mmax(m_max_obs, n_above, b_used, m_min)
 
-        # Cumulative moment release (Hanks & Kanamori)
-        years = cat_data.get("year", np.arange(len(mag)))
-        moment = 10 ** (1.5 * mag.values + 9.05)
-        cum_moment = np.cumsum(moment)
+    fig_sc, ax_sc = plt.subplots(figsize=(10, 5))
+    ax_sc.plot(cat["_year"].values, cat["_mag"].values, "o", markersize=3,
+               alpha=0.5, color="#3b82f6")
+    ax_sc.axhline(m_min, color="#ef4444", linestyle="--", linewidth=1,
+                  label=f"Mmin = {m_min}")
+    ax_sc.set_xlabel("Year")
+    ax_sc.set_ylabel("Magnitude")
+    ax_sc.set_title(f"Magnitude-Time Distribution ({len(cat)} events)")
+    ax_sc.legend(fontsize=8)
+    ax_sc.grid(True, linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    plot_scatter = fig_to_b64(fig_sc)
 
-        fig_cm, ax_cm = plt.subplots(figsize=(10, 5))
-        ax_cm.plot(years[:len(cum_moment)], cum_moment, "b-", linewidth=1.5)
-        ax_cm.set_xlabel("Year")
-        ax_cm.set_ylabel("Cumulative Seismic Moment (N.m)")
-        ax_cm.set_title("Cumulative Moment Release")
-        ax_cm.grid(True, linestyle="--", alpha=0.4)
-        plt.tight_layout()
-        plot_moment = fig_to_b64(fig_cm)
+    # Cumulative moment release (Hanks & Kanamori; M0 = 10^(1.5M+9.05) N·m,
+    # BBS Eq. 2.5 pp. 35, 57), on the time-sorted frame.
+    moment = 10 ** (1.5 * cat["_mag"].values + 9.05)
+    cum_moment = np.cumsum(moment)
 
-        m_max_obs = float(mag.max())
+    fig_cm, ax_cm = plt.subplots(figsize=(10, 5))
+    ax_cm.plot(cat["_year"].values, cum_moment, "b-", linewidth=1.5)
+    ax_cm.set_xlabel("Year")
+    ax_cm.set_ylabel("Cumulative Seismic Moment (N.m)")
+    ax_cm.set_title("Cumulative Moment Release")
+    ax_cm.grid(True, linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    plot_moment = fig_to_b64(fig_cm)
 
-        results = {
-            "observed_mmax": round(m_max_obs, 2),
-            "mmax_plus_05": round(m_max_obs + 0.5, 2),
-            "n_events": len(mag),
-            "mag_range": f"{mag.min():.1f} - {mag.max():.1f}",
-        }
+    results = {
+        "observed_mmax": round(m_max_obs, 2),
+        "mmax_kijko_sellevoll": round(mmax_ks, 2),
+        "ks_increment": round(mmax_ks - m_max_obs, 2),
+        "b_used": round(float(b_used), 3),
+        "b_source": b_source,
+        "b_stderr": round(float(b_stderr), 3) if b_stderr is not None else None,
+        "m_min": m_min,
+        "n_above_mmin": n_above,
+        "n_events": int(len(mag)),
+        "mag_range": f"{mag.min():.1f} - {mag.max():.1f}",
+    }
 
-        return jsonify(
-            plot_scatter=plot_scatter,
-            plot_moment=plot_moment,
-            results=results,
-            source=src_label,
-            qaqc=f"Source: {src_label}. Mmax: observed={m_max_obs:.2f}, "
-                 f"Mmax+0.5={m_max_obs+0.5:.2f}, {len(mag)} events",
-        )
-    except Exception as e:
-        return jsonify(error=str(e))
+    qaqc_parts = [f"Source: {src_label}.", f"Input: {n_input} events."]
+    qaqc_parts.extend(notes)
+    qaqc_parts.extend(f"WARNING: {w}" for w in warnings)
+    qaqc_parts.append(
+        f"Mmax: observed={m_max_obs:.2f}, Kijko–Sellevoll={mmax_ks:.2f} "
+        f"(kijko2004.pdf Eqs. 6–8), n(M>={m_min})={n_above}, b={b_used:.3f}")
+
+    return jsonify(
+        plot_scatter=plot_scatter,
+        plot_moment=plot_moment,
+        results=results,
+        pipeline_notes=notes,
+        warnings=warnings,
+        source=src_label,
+        qaqc=" ".join(qaqc_parts),
+    )
 
 
 if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False, host="127.0.0.1",
-            port=int(os.environ.get("PORT", 5000)))
+    # Werkzeug debugger is an RCE vector (CODE_REVIEW C2): opt in via env var
+    # for local development only; never with a non-loopback bind address.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", use_reloader=False,
+            host="127.0.0.1", port=int(os.environ.get("PORT", 5000)))

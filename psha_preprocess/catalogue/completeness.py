@@ -231,11 +231,12 @@ def plot_stepp(result, title="", figsize=(10, 7)):
     return fig
 
 
-def _build_step_curve(completeness_table, t_min, t_max, m_max):
+def _build_step_curve(completeness_table, t_min, t_max, time_bin=5.0):
     """Build staircase step curve from completeness table.
 
     Table format: [[year, mag], ...] where each row means
     'complete for M >= mag from year onwards'.
+    `time_bin` extends the last segment past the right edge.
     Returns (step_x, step_y) arrays for plotting.
     """
     ct = np.array(completeness_table)
@@ -254,14 +255,10 @@ def _build_step_curve(completeness_table, t_min, t_max, m_max):
         step_y.append(mg)
 
     # Extend last segment to the right edge
-    step_x.append(t_max + time_bin_default)
+    step_x.append(t_max + time_bin)
     step_y.append(step_y[-1])
 
     return step_x, step_y
-
-
-# Default time bin for extending step curve
-time_bin_default = 5
 
 
 def plot_mag_time_density(years, magnitudes, mag_bin=0.5, time_bin=5,
@@ -270,9 +267,6 @@ def plot_mag_time_density(years, magnitudes, mag_bin=0.5, time_bin=5,
 
     Uses 'viridis' colormap (OpenQuake style: dark purple → cyan → yellow).
     """
-    global time_bin_default
-    time_bin_default = time_bin
-
     years = np.asarray(years, dtype=float)
     magnitudes = np.asarray(magnitudes, dtype=float)
 
@@ -299,7 +293,7 @@ def plot_mag_time_density(years, magnitudes, mag_bin=0.5, time_bin=5,
 
     # Overlay completeness step curve
     if completeness_table is not None and len(completeness_table) > 0:
-        sx, sy = _build_step_curve(completeness_table, t_min, t_max, m_max)
+        sx, sy = _build_step_curve(completeness_table, t_min, t_max, time_bin)
         ax.plot(sx, sy, color="#8b1a1a", linewidth=2.5, label="Completeness")
         ax.legend(fontsize=8)
 

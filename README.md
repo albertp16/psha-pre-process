@@ -26,7 +26,7 @@ and preloaded — every page runs out of the box, or accepts an uploaded CSV ins
 | 2 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |
 | 3 | **Gutenberg-Richter** | Maximum-likelihood a/b values | Recurrence plot, rates CSV |
 | 4 | **MFD** | Completeness-corrected rates by depth class | OpenQuake `ArbitraryMFD` + `TruncatedGRMFD` XML, rates CSV |
-| 5 | **Max Magnitude** | Observed Mmax, Mmax+0.5, cumulative moment | Mmax estimates, moment-release plot |
+| 5 | **Max Magnitude** | Kijko–Sellevoll estimator (Kijko 2004) + observed Mmax, cumulative moment | Mmax estimates, moment-release plot |
 
 <p>
   <img src="docs/gr_recurrence.png" alt="Gutenberg-Richter recurrence plot" width="49%">
@@ -38,10 +38,22 @@ UI: light/dark theme, numbered workflow sidebar, site-preset dropdown
 
 ## Quick start
 
+Windows:
+
 ```bash
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python web_app.py        # http://127.0.0.1:5000
+```
+
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python web_app.py                      # http://127.0.0.1:5000
+# macOS: AirPlay Receiver may occupy port 5000 — use PORT=5001 python web_app.py
 ```
 
 Maps need a Mapbox token (any of):
@@ -111,6 +123,42 @@ The audit's expected-anomaly ledger is pinned to the known workbook's SHA-256: w
 source file the ledger is reported (not asserted) — review it, then update `EXPECTED_LEDGERS`
 in `scripts/audit_catalogue.py` to re-pin.
 
+## Analysis pipeline (BBS Sec. 3.3.5 order)
+
+Every analysis page runs the catalogue-preparation steps in order:
+
+1. **Harmonize to Mw** — off until you paste `scale,slope,intercept` coefficient
+   lines (region-specific relations must be supplied and cited; none are baked in).
+2. **Remove duplicates** — on by default (60 s / 50 km / ΔM 0.5 tolerances).
+3. **Decluster** — Gardner–Knopoff-style windows with the mainshock taken as the
+   *largest* event of each cluster; foreshocks are removed too. GR/MFD/Mmax pages
+   offer a "Decluster first" checkbox and warn when the input was not declustered.
+4. **Completeness** — Stepp (1972) on the Completeness page; GR/MFD rates count
+   events only inside each magnitude bin's period of completeness.
+5. **GR / MFD fit** — Aki MLE b-value with Shi–Bolt standard error.
+6. **Mmax** — Kijko–Sellevoll estimator (Kijko 2004, Eqs. 6–8).
+
+The corrected, cited, doctested building blocks live in
+`psha_preprocess/catalogue/pipeline.py` (reference of record:
+`reference/psha_pipeline_reference.py`). One focal-depth convention is used on
+all pages: shallow 0–35, mid-depth 35–70, deep 70–700 km (project convention).
+
+## Tests
+
+```bash
+python3 -m pytest tests/ -q           # pipeline units + endpoint smoke tests
+python scripts/audit_catalogue.py     # capture audit, exit 0 required
+```
+
+## Security defaults
+
+- Uploads capped at 50 MB (`MAX_CONTENT_LENGTH`).
+- The Werkzeug debugger is off unless `FLASK_DEBUG=1`; the app binds to
+  127.0.0.1 only.
+- Server-provided strings are HTML-escaped in the UI.
+- The Mapbox token is interpolated into the page — use a public, URL-restricted
+  token only.
+
 ## HTTP API
 
 | Endpoint | Method | Notes |
@@ -118,11 +166,11 @@ in `scripts/audit_catalogue.py` to re-pin.
 | `/` | GET | Single-page app |
 | `/api/catalog_info` | GET | Catalogue summary + audit status |
 | `/data/catalog.json`, `/data/catalog.geojson` | GET | Converted catalogue |
-| `/api/declustering` | POST | `use_default=1` or `file=@catalog.csv`; `site_lat`, `site_lon`, `use_gk/use_gr/use_uh` |
+| `/api/declustering` | POST | `use_default=1` or `file=@catalog.csv`; `site_lat`, `site_lon`, `use_gk/use_gr/use_uh`, `dedup`, `harmonize_coeffs` |
 | `/api/completeness` | POST | `mode=auto\|manual\|both`, Stepp bins, depth classes |
-| `/api/gutenberg_richter` | POST | `mc`, `dm`, `m_limit`, `m_max` |
-| `/api/mfd` | POST | `dm`, `min_mag`, `max_mag`, per-depth completeness tables |
-| `/api/max_magnitude` | POST | `mag_col`, `time_col` |
+| `/api/gutenberg_richter` | POST | `mc`, `dm`, `m_limit`, `m_max`, `compl_whole`, `dedup`, `decluster_first` |
+| `/api/mfd` | POST | `dm`, `min_mag`, `max_mag`, per-depth completeness tables, `dedup`, `decluster_first` |
+| `/api/max_magnitude` | POST | `mag_col`, `time_col`, `m_min`, `b_value` (empty = Aki MLE), `dedup`, `decluster_first` |
 
 All analysis endpoints accept either an uploaded `file` or `use_default=1` for the bundled
 PHIVOLCS catalogue, and return JSON with base64-encoded plots.
@@ -131,10 +179,13 @@ PHIVOLCS catalogue, and return JSON with base64-encoded plots.
 
 ```
 web_app.py                    Flask app: 5 analysis APIs + catalog endpoints
-psha_preprocess/catalogue/    completeness (Stepp 1972), checker, converter, qaqc
+psha_preprocess/catalogue/    pipeline (steps 1-6), completeness (Stepp 1972),
+                              checker, converter, qaqc
 scripts/                      convert_catalogue.py, audit_catalogue.py
 data/                         source xlsx, catalog.json, catalog.geojson
 reports/                      audit_report.md, audit.json
+tests/                        pytest suite (pipeline + endpoint smoke tests)
+reference/                    psha_pipeline_reference.py (cited reference implementations)
 templates/, static/           sidebar UI, Mapbox maps, light/dark theme
 docs/                         README images (generated by the app)
 ```

@@ -47,7 +47,25 @@
       </div>
     </div>
 
-    <h3>Windowing Methods</h3>
+    <h3>Catalogue Preparation (steps 1&ndash;2, before declustering)</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label><input type="checkbox" id="dec-dedup" checked> Remove duplicate events (60 s / 50 km / &Delta;M 0.5)</label>
+      </div>
+      <div class="form-group">
+        <label>Magnitude-scale col (for harmonization)</label>
+        <input id="dec-magtype" value="mag_type">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label>Harmonize to Mw &mdash; coefficients <code>scale,slope,intercept</code> per line (Mw = slope&middot;M + intercept).
+          Leave empty to skip; region-specific relations must be supplied and cited by the user.</label>
+        <textarea id="dec-harmonize" rows="3" placeholder="Ms,0.67,2.07&#10;Mb,1.38,-1.79"></textarea>
+      </div>
+    </div>
+
+    <h3>Windowing Methods (step 3 &mdash; mainshock = largest event of the cluster)</h3>
     <div class="form-row">
       <div class="form-group">
         <label><input type="checkbox" id="dec-gk" checked> Gardner &amp; Knopoff (1974)</label>
