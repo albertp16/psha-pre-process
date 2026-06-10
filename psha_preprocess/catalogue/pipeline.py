@@ -61,6 +61,116 @@ def harmonize_to_mw(mags, scales, coeffs):
     return mw, converted
 
 
+# ── 1b. Cited scale conversions + seismic moment ────────────────────
+# (slope, intercept, mmin, mmax, sigma) per cited relation; sigma=None when
+# the folder does not print a standard deviation for that relation.
+MS_RELATIONS = {
+    "scordilis2006": (0.67, 2.07, 3.0, 6.1, 0.17),    # Lamessa Eq. 8, p. 5
+    "akkar2010":     (0.817, 1.176, 5.5, 7.5, None),  # Lamessa Eq. 10, p. 5
+}
+MB_RELATIONS = {
+    "scordilis2006": (0.85, 1.03, 3.5, 6.2, 0.29),    # Lamessa Eq. 1, p. 5
+    "akkar2010":     (1.104, -0.194, 3.5, 6.3, None), # Lamessa Eq. 2, p. 5
+}
+
+
+def homogenize_to_mw(mw=None, ms=None, mb=None, fallback=None,
+                     ms_relation="scordilis2006", mb_relation="scordilis2006",
+                     respect_ranges=True):
+    """Best per-event Mw from mixed reported scales, with cited relations.
+
+    Per event the first available of (reported Mw, Ms->Mw, mb->Mw) is used;
+    when none is available the `fallback` magnitude passes through unchanged
+    and is labelled "raw" (no folder-backed single-step Ml->Mw exists).
+
+    With ``respect_ranges=True`` (default) a relation is applied only inside
+    its cited validity range — outside it the event falls through to the next
+    scale, else to `fallback`. This deliberately keeps the largest events
+    (e.g. Ms 8.3 >> 6.1) on their reported value instead of corrupting them
+    with unsupported extrapolation; set False to extrapolate (disclose it).
+
+    Basis: BBS Sec. 3.3.5 (Harmonization), p. 69 — convert to Mw via simple
+    polynomial relations (Eq. 3.9); reported Mw preferred. Relations:
+    Lamessa et al. (2019), p. 5 — Scordilis (2006) mb->Mw Eq. (1)
+    [Mw = 0.85 mb + 1.03, 3.5<=mb<=6.2] and Ms->Mw Eq. (8)
+    [Mw = 0.67 Ms + 2.07, 3.0<=Ms<=6.1]; Akkar et al. (2010) Eqs. (2)/(10)
+    as alternatives. Mirrors the psha-mind vault Day 16
+    (notes/code/16_moment_magnitude.py).
+
+    Returns (mw_est, sources) — sources per event in
+    {"mw", "ms2mw", "mb2mw", "raw", "nan"}.
+
+    >>> mw_est, src = homogenize_to_mw(
+    ...     mw=[np.nan, 7.2, np.nan, np.nan],
+    ...     ms=[6.0, 6.5, np.nan, np.nan],
+    ...     mb=[5.5, 5.0, 5.0, np.nan],
+    ...     fallback=[5.9, 7.2, 5.2, 4.6])
+    >>> np.round(mw_est, 2).tolist()                 # Ms 6.0 -> 6.09, etc.
+    [6.09, 7.2, 5.28, 4.6]
+    >>> src.tolist()
+    ['ms2mw', 'mw', 'mb2mw', 'raw']
+    >>> mw_est, src = homogenize_to_mw(ms=[8.3], fallback=[8.3])
+    >>> mw_est.tolist(), src.tolist()    # Ms 8.3 outside 3.0-6.1: kept raw
+    ([8.3], ['raw'])
+    >>> mw_est, src = homogenize_to_mw(ms=[8.3], fallback=[8.3],
+    ...                                respect_ranges=False)
+    >>> round(float(mw_est[0]), 2), src.tolist()     # disclosed extrapolation
+    (7.63, ['ms2mw'])
+    """
+    def _arr(x):
+        if x is None:
+            return None
+        return np.asarray(x, dtype=float)
+
+    arrays = [a for a in (_arr(mw), _arr(ms), _arr(mb), _arr(fallback))
+              if a is not None]
+    if not arrays:
+        raise ValueError("at least one of mw/ms/mb/fallback is required")
+    n = len(arrays[0])
+    mw_a = _arr(mw) if mw is not None else np.full(n, np.nan)
+    ms_a = _arr(ms) if ms is not None else np.full(n, np.nan)
+    mb_a = _arr(mb) if mb is not None else np.full(n, np.nan)
+    fb_a = _arr(fallback) if fallback is not None else np.full(n, np.nan)
+
+    a_ms, b_ms, ms_lo, ms_hi = MS_RELATIONS[ms_relation][:4]
+    a_mb, b_mb, mb_lo, mb_hi = MB_RELATIONS[mb_relation][:4]
+
+    ms_conv = a_ms * ms_a + b_ms
+    mb_conv = a_mb * mb_a + b_mb
+    if respect_ranges:
+        ms_conv = np.where((ms_a >= ms_lo) & (ms_a <= ms_hi), ms_conv, np.nan)
+        mb_conv = np.where((mb_a >= mb_lo) & (mb_a <= mb_hi), mb_conv, np.nan)
+
+    # Lowest-priority source first; each later layer overwrites, so the final
+    # priority is reported Mw > Ms->Mw > mb->Mw > fallback (BBS p. 69:
+    # reported Mw preferred).
+    out = np.full(n, np.nan)
+    src = np.full(n, "nan", dtype=object)
+    for values, label in ((fb_a, "raw"),
+                          (mb_conv, "mb2mw"),
+                          (ms_conv, "ms2mw"),
+                          (mw_a, "mw")):
+        m = ~np.isnan(values)
+        out[m] = values[m]
+        src[m] = label
+    return out, src.astype(str)
+
+
+def seismic_moment_nm(mw):
+    """Seismic moment M0 in N·m from moment magnitude Mw.
+
+    Inverse of Hanks & Kanamori (1979), Eq. (7), p. 2349:
+    M = (2/3) log10(M0) - 10.7 with M0 in dyne-cm, i.e.
+    log10(M0[dyne-cm]) = 1.5 Mw + 16.05  ->  log10(M0[N·m]) = 1.5 Mw + 9.05.
+    Same scale: BBS Eq. 2.5, pp. 35, 57. Defined for MOMENT magnitude —
+    feed other scales through homogenize_to_mw first (BBS p. 69).
+
+    >>> float(np.round(seismic_moment_nm(7.0) / 1e19, 2))   # 3.55e26 dyne-cm
+    3.55
+    """
+    return 10.0 ** (1.5 * np.asarray(mw, dtype=float) + 9.05)
+
+
 # ── 2. Duplicate removal ────────────────────────────────────────────
 
 def remove_duplicates(times_s, lats, lons, mags,

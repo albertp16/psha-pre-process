@@ -101,6 +101,56 @@ def test_max_magnitude_kijko_sellevoll(client):
     assert "mmax_plus_05" not in res        # uncited placeholder removed (A3)
 
 
+def test_max_magnitude_moment_is_mw_aligned(client):
+    r = client.post("/api/max_magnitude",
+                    data={"use_default": "1", "m_min": "4.5"})
+    d = r.get_json()
+    src = d["moment_sources"]
+    # mixed-scale catalogue: reported Mw events plus Scordilis conversions
+    assert src.get("mw", 0) > 0
+    assert src.get("ms2mw", 0) > 0
+    assert sum(src.values()) == d["results"]["n_events"]
+    assert any("Mw" in n for n in d["pipeline_notes"])
+
+
+def test_step1_homogenization_default_on_and_range_gated(client):
+    r = client.post("/api/max_magnitude",
+                    data={"use_default": "1", "m_min": "4.5"})
+    d = r.get_json()
+    assert any("Step 1 homogenization to Mw" in n for n in d["pipeline_notes"])
+    # the Ms 8.3 maxima are outside the Scordilis range and must stay 8.3
+    assert d["results"]["observed_mmax"] == 8.3
+
+
+def test_step1_homogenization_can_be_disabled(client):
+    r = client.post("/api/max_magnitude",
+                    data={"use_default": "1", "m_min": "4.5", "homogenize": "0"})
+    d = r.get_json()
+    assert any("disabled by user" in n for n in d["pipeline_notes"])
+    # moment sum still aligns to Mw on its own (display-level fallback)
+    assert any("Moment input aligned to Mw" in n for n in d["pipeline_notes"])
+
+
+def test_max_magnitude_events_detail_computations(client):
+    r = client.post("/api/max_magnitude",
+                    data={"use_default": "1", "m_min": "4.5"})
+    d = r.get_json()
+    ev = d["events_detail"]
+    assert len(ev) == d["results"]["n_events"]
+    # the Ms 8.3 maxima are kept as reported (range-gated)
+    big = max(ev, key=lambda e: e["mw_used"])
+    assert big["mw_used"] == 8.3
+    assert big["src"] == "raw"
+    assert big["ms"] == 8.3
+    # a converted event's stored M0 must equal the cited formula exactly
+    one = next(e for e in ev if e["src"] == "ms2mw")
+    assert one["m0"] == pytest.approx(10 ** (1.5 * one["mw_used"] + 9.05), rel=1e-9)
+    # relation constants shipped for the client-side LaTeX rendering
+    rel = d["moment_relations"]
+    assert (rel["ms"]["a"], rel["ms"]["b"]) == (0.67, 2.07)
+    assert (rel["mb"]["a"], rel["mb"]["b"]) == (0.85, 1.03)
+
+
 def test_max_magnitude_user_b(client):
     r = client.post("/api/max_magnitude",
                     data={"use_default": "1", "m_min": "4.5", "b_value": "1.0"})

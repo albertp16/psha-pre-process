@@ -137,3 +137,43 @@ def test_harmonize_to_mw():
     mw, conv = pl.harmonize_to_mw(mags, scales, coeffs)
     assert np.allclose(np.round(mw, 2), [5.42, 6.0, 5.8])
     assert conv.tolist() == [True, False, True]
+
+
+# ── Step 1b: Mw alignment for the seismic moment (vault Day 16 mirror) ──
+
+def test_homogenize_to_mw_priority_and_relations():
+    mw_est, src = pl.homogenize_to_mw(
+        mw=[np.nan, 7.2], ms=[6.0, 6.5], mb=[5.5, 5.0], fallback=[5.9, 7.2])
+    # Ms 6.0 -> 6.09 (Lamessa p. 5, Scordilis 2006 Eq. 8)
+    assert round(float(mw_est[0]), 2) == 6.09
+    assert src[0] == "ms2mw"
+    # reported Mw preferred over Ms/mb (BBS p. 69)
+    assert mw_est[1] == 7.2
+    assert src[1] == "mw"
+
+
+def test_homogenize_to_mw_mb_relation_and_fallback():
+    mw_est, src = pl.homogenize_to_mw(mb=[5.0, np.nan], fallback=[5.2, 4.6])
+    # mb 5.0 -> 5.28 (Lamessa p. 5, Scordilis 2006 Eq. 1)
+    assert round(float(mw_est[0]), 2) == 5.28
+    assert src.tolist() == ["mb2mw", "raw"]
+    assert mw_est[1] == 4.6
+
+
+def test_homogenize_to_mw_range_gating_protects_largest_events():
+    # Ms 8.3 is far outside Scordilis Eq. 8 validity (3.0-6.1): the event
+    # must keep its reported value, not be extrapolated down to 7.63.
+    mw_est, src = pl.homogenize_to_mw(ms=[8.3, 6.0], fallback=[8.3, 6.0])
+    assert mw_est[0] == 8.3
+    assert src[0] == "raw"
+    assert round(float(mw_est[1]), 2) == 6.09     # in range: converted
+    # explicit extrapolation only on request
+    mw_est, src = pl.homogenize_to_mw(ms=[8.3], fallback=[8.3],
+                                      respect_ranges=False)
+    assert round(float(mw_est[0]), 2) == 7.63
+    assert src[0] == "ms2mw"
+
+
+def test_seismic_moment_matches_hanks_kanamori():
+    # HK Eq. 7 example: Mw 7.0 -> 3.55e26 dyne-cm = 3.55e19 N·m
+    assert pl.seismic_moment_nm(7.0) == pytest.approx(3.55e19, rel=0.01)

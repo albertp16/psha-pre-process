@@ -148,18 +148,28 @@ def _has_datetime_time(cat) -> bool:
         np.asarray(cat["_time"].values).dtype, np.datetime64)
 
 
+def _mw_breakdown(srcs):
+    """Human-readable per-source counts from homogenize_to_mw labels."""
+    order = (("mw", "reported Mw"), ("ms2mw", "Ms→Mw"), ("mb2mw", "mb→Mw"),
+             ("user_coeffs", "user-coefficient"), ("raw", "kept as reported"))
+    return ", ".join(f"{srcs[k]} {lbl}" for k, lbl in order if srcs.get(k))
+
+
 def _apply_pipeline_pre_steps(cat, form, notes):
     """Steps 1–2 of the catalogue-preparation chain, in order.
 
-    Step 1 harmonize to Mw (BBS p. 69) — only with user-supplied
-    'scale,slope,intercept' coefficient lines (Philippines relations are not
-    in the PSHA Reference Folder, so none are baked in).
+    Step 1 homogenize to Mw (BBS p. 69) — ON by default using the
+    folder-cited global relations (reported Mw > Ms→Mw > mb→Mw, Scordilis
+    2006 via Lamessa p. 5), applied only inside their validity ranges.
+    User-supplied 'scale,slope,intercept' coefficient lines override the
+    cited defaults; `homogenize=0` disables the step.
     Step 2 remove duplicates (BBS p. 68) — default ON, needs lat/lon and a
     datetime time column.
 
-    Returns the (possibly filtered) catalogue; appends QA/QC lines to `notes`.
-    Raises ValueError on unusable harmonization input.
+    Returns (catalogue, info) where info may carry 'mw_sources' counts;
+    appends QA/QC lines to `notes`. Raises ValueError on unusable input.
     """
+    info = {}
     text = form.get("harmonize_coeffs", "").strip()
     if text:
         coeffs, bad = _parse_harmonize_coeffs(text)
@@ -177,6 +187,9 @@ def _apply_pipeline_pre_steps(cat, form, notes):
         cat = cat.copy()
         cat["_mag"] = mw
         cat["mag_mw"] = mw  # propagated to CSV downloads
+        cat["mag_mw_src"] = np.where(conv, "user_coeffs", "raw")
+        info["mw_sources"] = {"user_coeffs": int(conv.sum()),
+                              "raw": int((~conv).sum())}
         notes.append(
             f"Step 1 harmonization: {int(conv.sum())} magnitudes converted to Mw "
             f"with user-supplied coefficients ({', '.join(sorted(coeffs))}); "
@@ -184,10 +197,60 @@ def _apply_pipeline_pre_steps(cat, form, notes):
             "be region-specific and cited by the user).")
         if bad:
             notes.append(f"Harmonization: {len(bad)} unparsable line(s) ignored.")
+    elif form.get("homogenize", "1") == "1":
+        # Cited global defaults: reported Mw > Ms->Mw > mb->Mw (Scordilis 2006
+        # via Lamessa p. 5), each applied only inside its validity range so the
+        # largest events (e.g. Ms 8.3) are never extrapolated.
+        def _col(name):
+            col = form.get(f"{name}_col", name)
+            if col in cat.columns:
+                vals = pd.to_numeric(cat[col], errors="coerce")
+                if vals.notna().any():
+                    return vals.values
+            return None
+
+        mw_v, ms_v, mb_v = _col("mw"), _col("ms"), _col("mb")
+        if mw_v is None and ms_v is None and mb_v is None:
+            notes.append(
+                "Step 1 homogenization: skipped — no mw/ms/mb scale columns "
+                "found; magnitudes used as reported (BBS p. 69).")
+        else:
+            mw_est, src = pl.homogenize_to_mw(
+                mw=mw_v, ms=ms_v, mb=mb_v, fallback=cat["_mag"].values)
+            cat = cat.copy()
+            cat["_mag"] = mw_est
+            cat["mag_mw"] = mw_est        # propagated to CSV downloads
+            cat["mag_mw_src"] = src       # per-event provenance
+            labels, counts = np.unique(src, return_counts=True)
+            srcs = {str(l): int(c) for l, c in zip(labels, counts)}
+            info["mw_sources"] = srcs
+            notes.append(
+                "Step 1 homogenization to Mw: " + _mw_breakdown(srcs)
+                + " — reported Mw preferred; conversions applied only inside "
+                  "their validity ranges (BBS p. 69; Lamessa p. 5, Scordilis "
+                  "2006 Eqs. 1/8 — global relations, not Philippines-specific).")
+            present = np.zeros(len(src), dtype=bool)
+            if ms_v is not None:
+                present |= ~np.isnan(ms_v)
+            if mb_v is not None:
+                present |= ~np.isnan(mb_v)
+            n_oor = int(((src == "raw") & present).sum())
+            n_noscale = srcs.get("raw", 0) - n_oor
+            if n_oor:
+                notes.append(
+                    f"{n_oor} kept-as-reported event(s) have Ms/mb outside the "
+                    "relations' ranges (Ms 3.0–6.1, mb 3.5–6.2; includes the "
+                    "largest events) — left unconverted rather than "
+                    "extrapolated.")
+            if n_noscale > 0:
+                notes.append(
+                    f"{n_noscale} event(s) have no Mw/Ms/mb (Ml-only): no "
+                    "folder-backed Ml→Mw relation; kept as reported.")
     else:
         notes.append(
-            "Step 1 harmonization: NOT applied — no conversion coefficients "
-            "supplied; 'mag' stays preferred-scale, unconverted (BBS p. 69).")
+            "Step 1 homogenization: disabled by user — magnitudes used as "
+            "reported (BBS p. 69 requires one consistent Mw scale before "
+            "rate fitting).")
 
     if form.get("dedup", "1") == "1":
         if {"_lat", "_lon"}.issubset(cat.columns) and _has_datetime_time(cat):
@@ -205,7 +268,7 @@ def _apply_pipeline_pre_steps(cat, form, notes):
         notes.append(
             "Step 2 duplicates: disabled by user (BBS p. 68: each event must "
             "be represented only once).")
-    return cat
+    return cat, info
 
 
 def _maybe_decluster_first(cat, form, notes):
@@ -529,7 +592,7 @@ def api_declustering():
     # ── Pipeline steps 1–2 before declustering (BBS Sec. 3.3.5, p. 68) ──
     pipeline_notes = []
     try:
-        cat = _apply_pipeline_pre_steps(cat, request.form, pipeline_notes)
+        cat, _pre = _apply_pipeline_pre_steps(cat, request.form, pipeline_notes)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     n = len(cat)
@@ -580,8 +643,7 @@ def api_declustering():
         method_magtime[m] = fig_to_b64(fig_mt)
 
         out_cols = [c for c in df.columns if c in cat.columns]
-        if "mag_mw" in cat.columns:
-            out_cols = out_cols + ["mag_mw"]
+        out_cols += [c for c in ("mag_mw", "mag_mw_src") if c in cat.columns]
         method_csvs[m] = cat[is_main][out_cols].to_csv(index=False)
 
     # ── Time-magnitude comparison plot (overlay) ──
@@ -864,7 +926,7 @@ def api_gutenberg_richter():
     # ── Pipeline steps 1–3 before rate fitting (BBS Sec. 3.3.5, p. 68) ──
     notes, warnings = [], []
     try:
-        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+        cat, pre_info = _apply_pipeline_pre_steps(cat, request.form, notes)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     cat, declustered = _maybe_decluster_first(cat, request.form, notes)
@@ -1043,7 +1105,7 @@ def api_mfd():
     # ── Pipeline steps 1–3 before rate fitting (BBS Sec. 3.3.5, p. 68) ──
     notes, warnings = [], []
     try:
-        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+        cat, pre_info = _apply_pipeline_pre_steps(cat, request.form, notes)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     cat, declustered = _maybe_decluster_first(cat, request.form, notes)
@@ -1336,7 +1398,7 @@ def api_max_magnitude():
     # ── Pipeline steps 1–2 (BBS Sec. 3.3.5, p. 68) ──
     notes, warnings = [], []
     try:
-        cat = _apply_pipeline_pre_steps(cat, request.form, notes)
+        cat, pre_info = _apply_pipeline_pre_steps(cat, request.form, notes)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     cat, declustered = _maybe_decluster_first(cat, request.form, notes)
@@ -1393,16 +1455,111 @@ def api_max_magnitude():
     plt.tight_layout()
     plot_scatter = fig_to_b64(fig_sc)
 
-    # Cumulative moment release (Hanks & Kanamori; M0 = 10^(1.5M+9.05) N·m,
-    # BBS Eq. 2.5 pp. 35, 57), on the time-sorted frame.
-    moment = 10 ** (1.5 * cat["_mag"].values + 9.05)
+    # Cumulative moment release. M0 = 10^(1.5*Mw + 9.05) N·m is defined for
+    # MOMENT magnitude only (Hanks & Kanamori 1979, Eq. 7, p. 2349; BBS
+    # Eq. 2.5, pp. 35, 57), so each event is first aligned to Mw: reported
+    # Mw > Ms->Mw > mb->Mw (Lamessa 2019 p. 5: Scordilis 2006 Eqs. 1/8);
+    # events with no convertible scale pass through flagged (BBS p. 69).
+    def _scale_col(name):
+        col = request.form.get(f"{name}_col", name)
+        if col in cat.columns:
+            vals = pd.to_numeric(cat[col], errors="coerce")
+            return vals.values if vals.notna().any() else None
+        return None
+
+    if "mag_mw" in cat.columns:        # step 1 already aligned _mag to Mw
+        mw_moment = cat["_mag"].values
+        if "mag_mw_src" in cat.columns:   # recount on the events actually summed
+            moment_sources = {str(k): int(v) for k, v in
+                              cat["mag_mw_src"].value_counts().items()}
+        else:
+            moment_sources = pre_info.get("mw_sources") or {
+                "harmonized": int(len(cat))}
+        notes.append("Moment input: step-1 Mw magnitudes used directly "
+                     "(Hanks–Kanamori Eq. 7 p. 2349; BBS Eq. 2.5 pp. 35, 57).")
+    else:
+        # Step 1 was disabled or skipped: align to Mw for the moment sum
+        # only, with the same cited, range-gated relations.
+        ms_v, mb_v = _scale_col("ms"), _scale_col("mb")
+        mw_moment, msrc = pl.homogenize_to_mw(
+            mw=_scale_col("mw"), ms=ms_v, mb=mb_v,
+            fallback=cat["_mag"].values)
+        labels, counts = np.unique(msrc, return_counts=True)
+        moment_sources = {str(l): int(c) for l, c in zip(labels, counts)}
+        notes.append("Moment input aligned to Mw per event: "
+                     + _mw_breakdown(moment_sources)
+                     + " (Hanks–Kanamori Eq. 7 p. 2349; Lamessa p. 5, "
+                       "Scordilis 2006 Eqs. 1/8, applied inside their "
+                       "validity ranges only).")
+        if moment_sources.get("raw"):
+            warnings.append(
+                f"{moment_sources['raw']} event(s) enter the moment sum on "
+                "their reported scale (Ms/mb outside the relations' ranges, "
+                "or Ml-only — no folder-backed Ml→Mw relation).")
+
+    moment = pl.seismic_moment_nm(mw_moment)
     cum_moment = np.cumsum(moment)
 
+    # Per-event source labels for the clickable catalogue table.
+    if "mag_mw_src" in cat.columns:
+        src_arr = cat["mag_mw_src"].astype(str).values
+    elif "mag_mw" in cat.columns:
+        src_arr = np.full(len(cat), "harmonized", dtype=object)
+    else:
+        src_arr = msrc
+
+    def _col_list(name):
+        col = request.form.get(f"{name}_col", name)
+        if col in cat.columns:
+            v = pd.to_numeric(cat[col], errors="coerce")
+            return [None if pd.isna(x) else round(float(x), 2) for x in v]
+        return [None] * len(cat)
+
+    ids = (cat["id"].astype(str).tolist() if "id" in cat.columns
+           else [str(i + 1) for i in range(len(cat))])
+    if _has_datetime_time(cat):
+        dates = cat["_time"].dt.strftime("%Y-%m-%d").tolist()
+    else:
+        dates = [f"{y:.2f}" for y in cat["_year"]]
+    mtypes = (cat["mag_type"].astype(str).tolist()
+              if "mag_type" in cat.columns else [""] * len(cat))
+    reported = [None if pd.isna(x) else round(float(x), 2)
+                for x in pd.to_numeric(cat[mag_col], errors="coerce")]
+
+    events_detail = [
+        {"id": i_, "date": d_, "ml": ml_, "mb": mb_, "ms": ms_, "mw": mw_,
+         "mag": rep_, "mag_type": mt_, "src": str(s_),
+         "mw_used": round(float(mwu_), 3), "m0": float(m0_)}
+        for i_, d_, ml_, mb_, ms_, mw_, rep_, mt_, s_, mwu_, m0_ in zip(
+            ids, dates, _col_list("ml"), _col_list("mb"), _col_list("ms"),
+            _col_list("mw"), reported, mtypes, src_arr, mw_moment, moment)
+    ]
+
+    rel_ms = pl.MS_RELATIONS["scordilis2006"]
+    rel_mb = pl.MB_RELATIONS["scordilis2006"]
+    moment_relations = {
+        "ms": {"a": rel_ms[0], "b": rel_ms[1], "lo": rel_ms[2], "hi": rel_ms[3],
+               "cite": "Scordilis 2006, Eq. 8 — Lamessa et al. 2019, p. 5"},
+        "mb": {"a": rel_mb[0], "b": rel_mb[1], "lo": rel_mb[2], "hi": rel_mb[3],
+               "cite": "Scordilis 2006, Eq. 1 — Lamessa et al. 2019, p. 5"},
+        "moment_cite": "Hanks & Kanamori 1979, Eq. 7, p. 2349; "
+                       "BBS Eq. 2.5, pp. 35/57",
+        "mw_cite": "BBS Sec. 3.3.5, p. 69 — reported Mw preferred",
+        "b_cite": "Aki MLE — Lamessa et al. 2019, Eqs. 21–22, p. 7",
+        "mmax_cite": "Kijko 2004, Eqs. 6–8, pp. 1659–1660",
+    }
+
     fig_cm, ax_cm = plt.subplots(figsize=(10, 5))
-    ax_cm.plot(cat["_year"].values, cum_moment, "b-", linewidth=1.5)
+    # Step curve: moment accumulates instantaneously at each event time.
+    ax_cm.plot(cat["_year"].values, cum_moment, "b-", linewidth=1.5,
+               drawstyle="steps-post")
     ax_cm.set_xlabel("Year")
     ax_cm.set_ylabel("Cumulative Seismic Moment (N.m)")
-    ax_cm.set_title("Cumulative Moment Release")
+    ax_cm.set_title("Cumulative Moment Release (Mw-aligned)")
+    src_text = ", ".join(f"{v} {k}" for k, v in sorted(moment_sources.items()))
+    ax_cm.text(0.98, 0.02, f"M0 = 10^(1.5·Mw + 9.05) N·m\nMw basis: {src_text}",
+               transform=ax_cm.transAxes, fontsize=8, ha="right", va="bottom",
+               bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
     ax_cm.grid(True, linestyle="--", alpha=0.4)
     plt.tight_layout()
     plot_moment = fig_to_b64(fig_cm)
@@ -1431,6 +1588,9 @@ def api_max_magnitude():
         plot_scatter=plot_scatter,
         plot_moment=plot_moment,
         results=results,
+        moment_sources=moment_sources,
+        events_detail=events_detail,
+        moment_relations=moment_relations,
         pipeline_notes=notes,
         warnings=warnings,
         source=src_label,

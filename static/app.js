@@ -150,6 +150,190 @@ function buildPipelineNotes(d) {
   return h;
 }
 
+// ── KaTeX helpers (per-event computation details, Mmax page) ──
+function renderMath(el, tex, display) {
+  if (window.katex) {
+    try {
+      katex.render(tex, el, { displayMode: !!display, throwOnError: false });
+      return;
+    } catch (e) { /* fall through to plain text */ }
+  }
+  el.textContent = tex;   // graceful fallback when the KaTeX CDN is unreachable
+}
+
+function sciTex(x) {
+  if (!isFinite(x) || x <= 0) return '0';
+  var e = Math.floor(Math.log10(x));
+  var m = x / Math.pow(10, e);
+  return m.toFixed(2) + '\\times 10^{' + e + '}';
+}
+
+var MMAX_SRC_LABELS = {
+  mw: 'reported Mw', ms2mw: 'Ms→Mw', mb2mw: 'mb→Mw',
+  raw: 'kept as reported', user_coeffs: 'user coefficients',
+  harmonized: 'harmonized (step 1)'
+};
+
+// Cited method equations (vault Day 16 / Reference Folder), KaTeX-rendered.
+function renderMmaxMethod(container, rel) {
+  var eqs = [
+    { tex: 'M_w = \\tfrac{2}{3}\\log_{10} M_0 - 10.7\\;(M_0\\,\\mathrm{dyne{\\cdot}cm})' +
+           ' \\;\\Longleftrightarrow\\; M_0 = 10^{1.5\\,M_w + 9.05}\\,\\mathrm{N{\\cdot}m}',
+      note: rel.moment_cite },
+    { tex: 'M_w = ' + rel.ms.a + '\\,M_s + ' + rel.ms.b +
+           ' \\quad (' + rel.ms.lo + ' \\le M_s \\le ' + rel.ms.hi + ')',
+      note: rel.ms.cite },
+    { tex: 'M_w = ' + rel.mb.a + '\\,m_b + ' + rel.mb.b +
+           ' \\quad (' + rel.mb.lo + ' \\le m_b \\le ' + rel.mb.hi + ')',
+      note: rel.mb.cite },
+    { tex: '\\hat b = \\log_{10}(e) \\,/\\, (\\bar{m} - m_{min})',
+      note: rel.b_cite },
+    { tex: '\\hat m_{max} = m^{obs}_{max} + \\frac{E_1(n_2) - E_1(n_1)}{\\beta\\,e^{-n_2}}' +
+           ' + m_{min}\\,e^{-n},\\quad n_1 = \\frac{n}{1 - e^{-\\beta(m_{max}-m_{min})}},' +
+           '\\quad n_2 = n_1 e^{-\\beta(m_{max}-m_{min})}',
+      note: rel.mmax_cite + ' (β = b·ln 10)' }
+  ];
+  eqs.forEach(function (eq) {
+    var row = document.createElement('div');
+    row.style.cssText = 'margin:10px 0;padding:8px 12px;background:var(--bg2);border-radius:6px;overflow-x:auto';
+    var m = document.createElement('div');
+    renderMath(m, eq.tex, true);
+    var n = document.createElement('div');
+    n.style.cssText = 'font-size:12px;color:var(--text2);margin-top:4px';
+    n.textContent = 'Basis: ' + eq.note;
+    row.appendChild(m);
+    row.appendChild(n);
+    container.appendChild(row);
+  });
+}
+
+function _mmaxTd(v) { return '<td>' + (v !== null && v !== undefined ? v : '-') + '</td>'; }
+
+function buildMmaxEventsRows(events) {
+  var h = '';
+  for (var i = 0; i < events.length; i++) {
+    var ev = events[i];
+    h += '<tr class="mmax-evt" data-i="' + ev._i + '" style="cursor:pointer" ' +
+         'title="Click for the cited computation">' +
+      '<td>' + escapeHtml(String(ev.id)) + '</td>' +
+      '<td>' + escapeHtml(String(ev.date)) + '</td>' +
+      _mmaxTd(ev.ml) + _mmaxTd(ev.mb) + _mmaxTd(ev.ms) + _mmaxTd(ev.mw) +
+      '<td>' + (ev.mag !== null && ev.mag !== undefined ? ev.mag : '-') +
+        (ev.mag_type ? ' (' + escapeHtml(String(ev.mag_type)) + ')' : '') + '</td>' +
+      '<td>' + escapeHtml(MMAX_SRC_LABELS[ev.src] || String(ev.src)) + '</td>' +
+      '<td><strong>' + Number(ev.mw_used).toFixed(2) + '</strong></td>' +
+      '<td>' + Number(ev.m0).toExponential(2) + '</td>' +
+      '</tr>';
+  }
+  return h;
+}
+
+function buildMmaxEventsTable(events) {
+  var cols = ['ID', 'Date', 'Ml', 'Mb', 'Ms', 'Mw', 'Preferred', 'Mw basis',
+              'Mw used', 'M0 (N·m)'];
+  var h = '<div class="tbl-scroll" style="max-height:480px;overflow:auto"><table><thead><tr>';
+  cols.forEach(function (c) { h += '<th>' + c + '</th>'; });
+  h += '</tr></thead><tbody id="mmax-evt-body">' + buildMmaxEventsRows(events) + '</tbody></table></div>';
+  h += '<p style="color:var(--text2);font-size:12px">' + events.length +
+       ' events — click any row to see its Mw conversion and seismic moment, with citations.</p>';
+  return h;
+}
+
+function filterMmaxEvents() {
+  var q = (document.getElementById('mmax-evt-filter').value || '').trim().toLowerCase();
+  var evs = window._mmaxEvents || [];
+  var f = !q ? evs : evs.filter(function (e) {
+    return String(e.id).toLowerCase().indexOf(q) >= 0 ||
+           String(e.date).indexOf(q) >= 0 ||
+           String(e.mag_type || '').toLowerCase().indexOf(q) >= 0 ||
+           (MMAX_SRC_LABELS[e.src] || String(e.src)).toLowerCase().indexOf(q) >= 0;
+  });
+  var body = document.getElementById('mmax-evt-body');
+  if (body) body.innerHTML = buildMmaxEventsRows(f);
+}
+
+function mmaxEventDetailNode(ev) {
+  var rel = window._mmaxRel || {};
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:10px 8px;background:var(--bg2);border-radius:6px';
+
+  function addLine(tex, note) {
+    var m = document.createElement('div');
+    renderMath(m, tex, true);
+    wrap.appendChild(m);
+    if (note) {
+      var n = document.createElement('div');
+      n.style.cssText = 'font-size:12px;color:var(--text2);margin:2px 0 8px';
+      n.textContent = 'Basis: ' + note;
+      wrap.appendChild(n);
+    }
+  }
+  function addNote(text) {
+    var n = document.createElement('div');
+    n.style.cssText = 'font-size:13px;color:var(--text2);margin:2px 0 8px';
+    n.textContent = text;
+    wrap.appendChild(n);
+  }
+
+  var head = document.createElement('div');
+  head.style.cssText = 'font-weight:600;margin-bottom:6px';
+  head.textContent = 'Event ' + ev.id + ' (' + ev.date + ') — reported: ' +
+    ['Ml', 'Mb', 'Ms', 'Mw'].map(function (k) {
+      var v = ev[k.toLowerCase()];
+      return v !== null && v !== undefined ? k + ' ' + v : null;
+    }).filter(Boolean).join(', ');
+  wrap.appendChild(head);
+
+  var mwu = Number(ev.mw_used);
+  if (ev.src === 'mw') {
+    addLine('M_w = ' + mwu.toFixed(2) + '\\;\\;\\text{(reported, preferred)}', rel.mw_cite);
+  } else if (ev.src === 'ms2mw' && rel.ms) {
+    addLine('M_w = ' + rel.ms.a + '\\,M_s + ' + rel.ms.b + ' = ' +
+            rel.ms.a + '(' + ev.ms + ') + ' + rel.ms.b + ' = ' + mwu.toFixed(2),
+            rel.ms.cite + ' (valid ' + rel.ms.lo + ' ≤ Ms ≤ ' + rel.ms.hi + ')');
+  } else if (ev.src === 'mb2mw' && rel.mb) {
+    addLine('M_w = ' + rel.mb.a + '\\,m_b + ' + rel.mb.b + ' = ' +
+            rel.mb.a + '(' + ev.mb + ') + ' + rel.mb.b + ' = ' + mwu.toFixed(2),
+            rel.mb.cite + ' (valid ' + rel.mb.lo + ' ≤ mb ≤ ' + rel.mb.hi + ')');
+  } else if (ev.src === 'raw') {
+    if (ev.ms !== null && ev.ms !== undefined && rel.ms &&
+        (ev.ms < rel.ms.lo || ev.ms > rel.ms.hi)) {
+      addLine('M_s = ' + ev.ms + ' \\notin [' + rel.ms.lo + ',\\,' + rel.ms.hi + ']',
+              'outside the cited validity range — kept as reported, not extrapolated (' + rel.ms.cite + ')');
+    } else if (ev.mb !== null && ev.mb !== undefined && rel.mb &&
+               (ev.mb < rel.mb.lo || ev.mb > rel.mb.hi)) {
+      addLine('m_b = ' + ev.mb + ' \\notin [' + rel.mb.lo + ',\\,' + rel.mb.hi + ']',
+              'outside the cited validity range — kept as reported, not extrapolated (' + rel.mb.cite + ')');
+    } else {
+      addNote('No reported Mw/Ms/mb (Ml-only): no folder-backed Ml→Mw relation — magnitude kept as reported.');
+    }
+    addLine('M_w \\approx ' + mwu.toFixed(2) + '\\;\\;\\text{(reported ' +
+            (ev.mag_type || 'scale') + ', unconverted)}');
+  } else if (ev.src === 'user_coeffs') {
+    addLine('M_w = a\\,M + b = ' + mwu.toFixed(2) + '\\;\\;\\text{(user-supplied coefficients)}');
+  } else {
+    addLine('M_w = ' + mwu.toFixed(2));
+  }
+
+  addLine('M_0 = 10^{1.5\\,M_w + 9.05} = 10^{1.5(' + mwu.toFixed(2) + ') + 9.05} = ' +
+          sciTex(Number(ev.m0)) + '\\;\\mathrm{N{\\cdot}m}', rel.moment_cite);
+  return wrap;
+}
+
+function toggleMmaxDetail(tr) {
+  var next = tr.nextElementSibling;
+  if (next && next.classList.contains('mmax-evt-detail')) { next.remove(); return; }
+  var ev = (window._mmaxEvents || [])[parseInt(tr.dataset.i, 10)];
+  if (!ev) return;
+  var row = document.createElement('tr');
+  row.className = 'mmax-evt-detail';
+  var cell = document.createElement('td');
+  cell.colSpan = 10;
+  cell.appendChild(mmaxEventDetailNode(ev));
+  row.appendChild(cell);
+  tr.parentNode.insertBefore(row, tr.nextSibling);
+}
+
 function plotHTML(b64, downloadName) {
   downloadName = downloadName || 'plot.png';
   return '<img class="plot-img" src="data:image/png;base64,' + b64 + '">' +
@@ -544,6 +728,7 @@ async function runDeclustering() {
   fd.append('use_gk', document.getElementById('dec-gk').checked ? '1' : '0');
   fd.append('use_gr', document.getElementById('dec-gr').checked ? '1' : '0');
   fd.append('use_uh', document.getElementById('dec-uh').checked ? '1' : '0');
+  fd.append('homogenize', document.getElementById('dec-homog').checked ? '1' : '0');
   fd.append('dedup', document.getElementById('dec-dedup').checked ? '1' : '0');
   fd.append('harmonize_coeffs', document.getElementById('dec-harmonize').value);
   fd.append('mag_type_col', document.getElementById('dec-magtype').value);
@@ -754,6 +939,7 @@ async function runGR() {
   fd.append('mc', document.getElementById('gr-mc').value);
   fd.append('m_limit', document.getElementById('gr-mlimit').value);
   fd.append('m_max', document.getElementById('gr-mmax').value);
+  fd.append('homogenize', document.getElementById('gr-homog').checked ? '1' : '0');
   fd.append('dedup', document.getElementById('gr-dedup').checked ? '1' : '0');
   fd.append('decluster_first', document.getElementById('gr-decluster').checked ? '1' : '0');
   fd.append('compl_whole', document.getElementById('gr-compl').value);
@@ -802,6 +988,7 @@ async function runMFD() {
   fd.append('compl_shallow', document.getElementById('mfd-shallow').value);
   fd.append('compl_mid', document.getElementById('mfd-mid').value);
   fd.append('compl_deep', document.getElementById('mfd-deep').value);
+  fd.append('homogenize', document.getElementById('mfd-homog').checked ? '1' : '0');
   fd.append('dedup', document.getElementById('mfd-dedup').checked ? '1' : '0');
   fd.append('decluster_first', document.getElementById('mfd-decluster').checked ? '1' : '0');
 
@@ -869,6 +1056,7 @@ async function runMmax() {
   fd.append('time_col', document.getElementById('mmax-time').value);
   fd.append('b_value', document.getElementById('mmax-bval').value);
   fd.append('m_min', document.getElementById('mmax-mmin').value);
+  fd.append('homogenize', document.getElementById('mmax-homog').checked ? '1' : '0');
   fd.append('dedup', document.getElementById('mmax-dedup').checked ? '1' : '0');
   fd.append('decluster_first', document.getElementById('mmax-decluster').checked ? '1' : '0');
 
@@ -890,12 +1078,34 @@ async function runMmax() {
     html += '<div class="metric"><div class="value">' + escapeHtml(String(res.mag_range)) + '</div><div class="label">Mag Range</div></div>';
     html += '</div>';
 
+    var evs = d.events_detail || [];
+    evs.forEach(function (e, i) { e._i = i; });
+    window._mmaxEvents = evs;
+    window._mmaxRel = d.moment_relations || {};
+
     html += buildPipelineNotes(d);
+    html += '<h2>Method (cited equations)</h2><div id="mmax-method"></div>';
     html += '<h2>Magnitude-Time Distribution</h2>' + plotHTML(d.plot_scatter, 'mmax_scatter.png');
     html += '<h2>Cumulative Moment Release</h2>' + plotHTML(d.plot_moment, 'cumulative_moment.png');
+    if (evs.length) {
+      html += '<h2>Event Catalogue — per-event Mw &amp; moment computation</h2>';
+      html += '<div class="form-row"><div class="form-group">' +
+        '<label>Filter (id / date / scale / basis)</label>' +
+        '<input id="mmax-evt-filter" oninput="filterMmaxEvents()" placeholder="e.g. 1948, Ms, kept"></div></div>';
+      html += '<div id="mmax-evt-table">' + buildMmaxEventsTable(evs) + '</div>';
+    }
     html += '</div>';
 
     document.getElementById('mmax-results').innerHTML = html;
+    var methodEl = document.getElementById('mmax-method');
+    if (methodEl && d.moment_relations) renderMmaxMethod(methodEl, d.moment_relations);
+    var tableEl = document.getElementById('mmax-evt-table');
+    if (tableEl) {
+      tableEl.addEventListener('click', function (e) {
+        var tr = e.target.closest('tr.mmax-evt');
+        if (tr) toggleMmaxDetail(tr);
+      });
+    }
     toast('Max magnitude estimation complete');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
   finally { busy('mmax-run', 'mmax-spin', false); }

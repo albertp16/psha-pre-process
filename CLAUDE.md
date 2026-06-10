@@ -10,8 +10,11 @@ The correct catalogue-preparation chain, per Baker–Bradley–Stafford (BBS),
 `rd psha/reference/`):
 
 ```
-1. Harmonize to Mw      (BBS p. 69 — wired in, but OFF until the user supplies
-                         cited region-specific coefficients; none are baked in)
+1. Harmonize to Mw      (BBS p. 69 — ON by default: reported Mw > Ms→Mw >
+                         mb→Mw, Scordilis 2006 via Lamessa p. 5, applied only
+                         inside each relation's validity range so the largest
+                         events are never extrapolated; user coefficients
+                         override; Ml-only events pass through flagged)
 2. Remove duplicates    (BBS p. 68 — applied by default on every analysis page)
 3. Decluster            (BBS pp. 73, 75 — mainshock = largest in cluster)
 4. Completeness         (BBS pp. 71–72)
@@ -54,9 +57,10 @@ them as if verified, and prefer adding the PDFs to the folder first:
   (pipeline module + reference `gk_windows()`) are uncited (HMTK-heritage values).
 - Stepp (1972) — completeness algorithm in `psha_preprocess/catalogue/completeness.py`.
 - Uhrhammer (1986), Grünthal — alternative decluster windows (same function).
-- Philippines-specific Ms/Mb/Ml→Mw conversion relations — required for
-  step 1; the example coefficients in the reference file are placeholders,
-  which is why the web app ships with harmonization off by default.
+- Philippines-specific Ms/Mb/Ml→Mw conversion relations — step 1 currently
+  uses the folder-cited GLOBAL relations (Scordilis 2006 via Lamessa p. 5),
+  range-gated; region-specific relations remain the preferred replacement,
+  and Ml has no folder-backed conversion at all (kept as reported, flagged).
 - The dm/2 b-value binning correction (Utsu 1965/Bender 1983) — exposed as
   the off-by-default `bin_correction` form flag; do not turn it on by default.
 

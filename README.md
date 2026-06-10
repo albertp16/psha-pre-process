@@ -127,8 +127,11 @@ in `scripts/audit_catalogue.py` to re-pin.
 
 Every analysis page runs the catalogue-preparation steps in order:
 
-1. **Harmonize to Mw** — off until you paste `scale,slope,intercept` coefficient
-   lines (region-specific relations must be supplied and cited; none are baked in).
+1. **Homogenize to Mw** — on by default: reported Mw > Ms→Mw > mb→Mw
+   (Scordilis 2006 global relations, cited via Lamessa 2019), each applied only
+   inside its validity range so the largest events (e.g. the Ms 8.3 maxima) are
+   never extrapolated; Ml-only events pass through flagged. Paste
+   `scale,slope,intercept` lines to override with your own cited coefficients.
 2. **Remove duplicates** — on by default (60 s / 50 km / ΔM 0.5 tolerances).
 3. **Decluster** — Gardner–Knopoff-style windows with the mainshock taken as the
    *largest* event of each cluster; foreshocks are removed too. GR/MFD/Mmax pages
@@ -170,7 +173,7 @@ python scripts/audit_catalogue.py     # capture audit, exit 0 required
 | `/api/completeness` | POST | `mode=auto\|manual\|both`, Stepp bins, depth classes |
 | `/api/gutenberg_richter` | POST | `mc`, `dm`, `m_limit`, `m_max`, `compl_whole`, `dedup`, `decluster_first` |
 | `/api/mfd` | POST | `dm`, `min_mag`, `max_mag`, per-depth completeness tables, `dedup`, `decluster_first` |
-| `/api/max_magnitude` | POST | `mag_col`, `time_col`, `m_min`, `b_value` (empty = Aki MLE), `dedup`, `decluster_first` |
+| `/api/max_magnitude` | POST | `mag_col`, `time_col`, `m_min`, `b_value` (empty = Aki MLE), `homogenize`, `dedup`, `decluster_first`; returns `events_detail` (per-event Mw basis + M0) for the clickable catalogue table |
 
 All analysis endpoints accept either an uploaded `file` or `use_default=1` for the bundled
 PHIVOLCS catalogue, and return JSON with base64-encoded plots.
