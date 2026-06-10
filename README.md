@@ -1,11 +1,40 @@
 # PSHA Pre-Process
 
-Catalogue pre-processing web app for Probabilistic Seismic Hazard Analysis, built around the
-**PHIVOLCS Earthquake Catalogue of the Philippines** (1907–2025, 3,577 events, M ≥ ~5).
-Ported from `seismicprocesspy` (sibling repo at `Desktop\seismicprocesspy`): Declustering, Completeness
-Analysis, Gutenberg-Richter, MFD, and Max Magnitude, plus Mapbox epicenter maps.
+**Earthquake catalogue pre-processing web app for Probabilistic Seismic Hazard Analysis (PSHA),
+built around the PHIVOLCS Earthquake Catalogue of the Philippines.**
+
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Flask](https://img.shields.io/badge/flask-3.x-lightgrey)
+![Capture audit](https://img.shields.io/badge/capture%20audit-passing-brightgreen)
+![Events](https://img.shields.io/badge/PHIVOLCS%20events-3%2C577-orange)
 
 Developed by **Albert Pamonag** and **Camille Pajarillaga** — APEC Consultancy.
+Analysis modules ported from the in-house `seismicprocesspy` toolkit.
+
+![PHIVOLCS catalogue epicenter map](docs/catalog_map.png)
+
+## What it does
+
+A Flask web app that takes the raw PHIVOLCS workbook (1907–2025, **3,577 events**, M ≥ ~5)
+through the standard PSHA source-characterisation chain. The converted catalogue is bundled
+and preloaded — every page runs out of the box, or accepts an uploaded CSV instead.
+
+| Step | Page | Method | Key outputs |
+|---|---|---|---|
+| — | **Catalog** | Interactive Mapbox epicenter map | Map + legend, audit status, source notes |
+| 1 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986) | Mainshock catalogues (CSV), maps, mag-time plots |
+| 2 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |
+| 3 | **Gutenberg-Richter** | Maximum-likelihood a/b values | Recurrence plot, rates CSV |
+| 4 | **MFD** | Completeness-corrected rates by depth class | OpenQuake `ArbitraryMFD` + `TruncatedGRMFD` XML, rates CSV |
+| 5 | **Max Magnitude** | Observed Mmax, Mmax+0.5, cumulative moment | Mmax estimates, moment-release plot |
+
+<p>
+  <img src="docs/gr_recurrence.png" alt="Gutenberg-Richter recurrence plot" width="49%">
+  <img src="docs/decluster_magtime.png" alt="Declustering magnitude-time plot" width="49%">
+</p>
+
+UI: light/dark theme, numbered workflow sidebar, site-preset dropdown
+(Project Site 14.62758° N, 121.08727° E or custom coordinates), fullscreen maps.
 
 ## Quick start
 
@@ -15,38 +44,90 @@ py -m venv .venv
 .venv\Scripts\python web_app.py        # http://127.0.0.1:5000
 ```
 
-The **Catalog** page shows the full PHIVOLCS catalogue on a Mapbox map with the capture-audit
-status. Every analysis page has *"Use PHIVOLCS default catalog"* pre-ticked; uploading a CSV
-overrides it. Maps need a Mapbox token: set the `MAPBOX_TOKEN` env var, drop it in an
-untracked `mapbox_token.txt` next to `web_app.py`, or paste it into the token field in the UI.
+Maps need a Mapbox token (any of):
+- set the `MAPBOX_TOKEN` environment variable, or
+- put the token in an untracked `mapbox_token.txt` next to `web_app.py`, or
+- paste it into the token field in the UI.
 
 ## Data pipeline
 
-| Step | Script | Output |
-|---|---|---|
-| Convert | `scripts/convert_catalogue.py` | `data/catalog.json` (full fidelity + metadata), `data/catalog.geojson` (Mapbox-ready, no intensity text) |
-| Audit | `scripts/audit_catalogue.py` | `reports/audit_report.md`, `reports/audit.json` (exit 1 on capture failure) |
+```
+data/source/*.xlsx ──convert_catalogue.py──▶ data/catalog.json + data/catalog.geojson
+                                                      │
+                                          audit_catalogue.py (must PASS)
+                                                      ▼
+                                    reports/audit_report.md + reports/audit.json
+```
 
-Source workbook: `data/source/Earthquake Catalogue of the Philippines.xlsx`
-(sheets `1907-2018` + `2019-2025`, header row 9, data from row 12).
+| Script | Purpose |
+|---|---|
+| `scripts/convert_catalogue.py` | Workbook → `catalog.json` (full fidelity + metadata) and `catalog.geojson` (Mapbox-ready; intensity text excluded) |
+| `scripts/audit_catalogue.py` | Independent re-read of the workbook; exits non-zero on any capture failure |
 
 ### Conversion rules
-- Every non-empty workbook cell lands in exactly one bucket: preamble metadata, header
-  metadata, or an event field — the audit proves the partition and reconciles all
-  47,046 data cells 1:1 (float tol 1e-9, text exact).
-- Magnitudes kept raw per type (`ml`, `mb`, `ms`, `mw`); preferred `mag` = first available of
-  **Mw > Ms > Mb > Ml**, recorded in `mag_type`. No empirical conversion.
-- No silent fixes: anomalies are kept raw and flagged in `qa_flags`.
 
-### Known source-data anomalies (audited)
-- Ml/Mb stored as text in the 1907–2018 sheet (1,250 + 1,855 cells) — coerced, flagged.
-- One event (2019–2025 sheet, row 329; 2023-02-24, Mw 5.0) has `Hour = 27` → `datetime_utc`
-  null, excluded from time-based analyses, still on the map.
-- 24 exact duplicate origin-time+location pairs (e.g. rows 323–327 repeated as 328–332).
-- Preamble region/period text does not match the actual data span (documented in
-  `metadata.notes`).
+- **Nothing is lost:** every non-empty workbook cell lands in exactly one bucket — preamble
+  metadata, header metadata, or an event field. The audit proves the partition and reconciles
+  all **47,046 data cells 1:1** (float tolerance 1e-9, text exact), across all ~1,010
+  spreadsheet columns.
+- **Magnitudes stay raw** per type (`ml`, `mb`, `ms`, `mw`); the preferred `mag` is the first
+  available of **Mw > Ms > Mb > Ml**, recorded in `mag_type`. No empirical conversion is applied.
+- **No silent fixes:** anomalies keep their raw values and are flagged in `qa_flags`.
 
-## Layout
+### Event record schema (`data/catalog.json`)
+
+| Field | Description |
+|---|---|
+| `id` | Sequential id (`PH-0001` …) in sheet/row order |
+| `source_sheet`, `source_row` | Exact xlsx provenance of the event |
+| `year month day hour minute second` | Origin-time components as published (GMT) |
+| `datetime_utc` | ISO 8601 origin time; `null` when components are invalid |
+| `latitude`, `longitude`, `depth_km` | Epicenter (°N, °E) and focal depth (km) |
+| `ml mb ms mw` | Published magnitudes by type (`null` when not reported) |
+| `mag`, `mag_type` | Preferred magnitude and which type supplied it |
+| `intensity_reports` | Verbatim RF / PEIS intensity text |
+| `qa_flags` | e.g. `invalid_datetime`, `ml_coerced_from_string` |
+
+### Known source-data anomalies (audited, kept raw)
+
+- Ml/Mb stored as **text** in the 1907–2018 sheet (1,250 + 1,855 cells) — coerced to float, flagged.
+- One event (2019–2025 sheet, row 329; 2023-02-24, Mw 5.0) has **`Hour = 27`** → `datetime_utc`
+  is `null`; excluded from time-based analyses but kept on the map and in the JSON.
+- **24 exact duplicate** origin-time + location pairs (e.g. rows 323–327 repeated as 328–332) —
+  worth reviewing before declustering.
+- The workbook preamble's stated region/period do not match the actual data span
+  (2–22° N, 116.3–133° E, 1907–2025); preserved verbatim in `metadata.notes`.
+
+### Updating the catalogue
+
+Drop a new PHIVOLCS workbook in `data/source/`, then:
+
+```bash
+.venv\Scripts\python scripts\convert_catalogue.py --xlsx "data/source/<new file>.xlsx"
+.venv\Scripts\python scripts\audit_catalogue.py
+```
+
+The audit's expected-anomaly ledger is pinned to the known workbook's SHA-256: with a new
+source file the ledger is reported (not asserted) — review it, then update `EXPECTED_LEDGERS`
+in `scripts/audit_catalogue.py` to re-pin.
+
+## HTTP API
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `/` | GET | Single-page app |
+| `/api/catalog_info` | GET | Catalogue summary + audit status |
+| `/data/catalog.json`, `/data/catalog.geojson` | GET | Converted catalogue |
+| `/api/declustering` | POST | `use_default=1` or `file=@catalog.csv`; `site_lat`, `site_lon`, `use_gk/use_gr/use_uh` |
+| `/api/completeness` | POST | `mode=auto\|manual\|both`, Stepp bins, depth classes |
+| `/api/gutenberg_richter` | POST | `mc`, `dm`, `m_limit`, `m_max` |
+| `/api/mfd` | POST | `dm`, `min_mag`, `max_mag`, per-depth completeness tables |
+| `/api/max_magnitude` | POST | `mag_col`, `time_col` |
+
+All analysis endpoints accept either an uploaded `file` or `use_default=1` for the bundled
+PHIVOLCS catalogue, and return JSON with base64-encoded plots.
+
+## Project layout
 
 ```
 web_app.py                    Flask app: 5 analysis APIs + catalog endpoints
@@ -54,5 +135,13 @@ psha_preprocess/catalogue/    completeness (Stepp 1972), checker, converter, qaq
 scripts/                      convert_catalogue.py, audit_catalogue.py
 data/                         source xlsx, catalog.json, catalog.geojson
 reports/                      audit_report.md, audit.json
-templates/, static/           sidebar UI (Catalog, Declustering, Completeness, GR, MFD, Mmax)
+templates/, static/           sidebar UI, Mapbox maps, light/dark theme
+docs/                         README images (generated by the app)
 ```
+
+## Data source & disclaimer
+
+Earthquake data: **Philippine Institute of Volcanology and Seismology (PHIVOLCS)**
+Seismicity Map / earthquake catalogue; parameters are subject to recalculation by PHIVOLCS.
+This tool is for APEC Consultancy internal use; results depend on user-selected parameters
+and should be reviewed by a qualified engineer before use in design.
