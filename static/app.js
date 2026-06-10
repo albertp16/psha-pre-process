@@ -1300,7 +1300,14 @@ async function runMomentMag() {
 
     html += buildPipelineNotes(d);
     html += '<h2>Method (cited equations)</h2><div id="mom-method"></div>';
-    html += '<h2>Magnitude–Time by Mw Basis</h2>' + plotHTML(d.plot, 'mw_homogenization.png');
+    html += '<h2>Figure 1.1 — Reported Scales vs Homogenized Mw</h2>' +
+      plotHTML(d.plot, 'fig_1_1_mw_homogenization.png');
+    html += '<p class="fig-caption"><strong>Figure 1.1.</strong> PHIVOLCS catalogue before and after ' +
+      'step-1 homogenization: (a) magnitudes as reported, coloured by preferred scale; ' +
+      '(b) the same events on one moment-magnitude scale, coloured by conversion basis ' +
+      '(reported Mw &gt; Ms→Mw &gt; mb→Mw, Scordilis 2006 via Lamessa et al. 2019, p. 5; ' +
+      'relations applied only inside their validity ranges, so out-of-range and Ml-only ' +
+      'events keep their reported value).</p>';
     if (evs.length) {
       html += '<h2>Event Catalogue — per-event Mw conversion</h2>';
       html += '<div class="form-row"><div class="form-group">' +

@@ -85,9 +85,14 @@ textarea { resize:vertical; font-family:monospace; }
 .result-card h3 { font-size:16px; margin-bottom:12px; }
 .metrics { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; }
 .metric { background:var(--surface2); border-radius:6px; padding:12px 20px; text-align:center; }
-.metric .value { font-size:24px; font-weight:700; color:var(--accent); }
-.metric .label { font-size:11px; color:var(--text2); text-transform:uppercase; }
+/* Never split a value or label mid-word: keep each on one line and let the
+   box grow; whole boxes wrap to the next row instead. */
+.metric .value { font-size:24px; font-weight:700; color:var(--accent); white-space:nowrap; }
+.metric .label { font-size:11px; color:var(--text2); text-transform:uppercase; white-space:nowrap; }
 .plot-img { max-width:100%; border-radius:6px; margin:12px 0; border:1px solid var(--border); }
+/* Report-style figure captions under plots */
+.fig-caption { font-size:13px; color:var(--text2); margin:-4px 0 16px; max-width:980px; }
+.fig-caption strong { color:var(--text); }
 
 /* Side-by-side plots */
 .plot-compare { display:flex; gap:16px; flex-wrap:wrap; }

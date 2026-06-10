@@ -518,25 +518,53 @@ def api_moment_magnitude():
     labels, cnts = np.unique(src_arr, return_counts=True)
     counts = {str(l): int(c) for l, c in zip(labels, cnts)}
 
-    # Magnitude-time scatter coloured by the per-event Mw basis.
+    # Figure 1.1 — comparative two-panel figure: (a) the catalogue as
+    # reported (mixed scales) vs (b) the same events homogenized to Mw,
+    # coloured by the per-event conversion basis.
+    years = cat["_year"].values
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.2),
+                                   sharex=True, sharey=True)
+
+    scale_colors = {"Mw": "#2563eb", "Ms": "#f59e0b",
+                    "Mb": "#16a34a", "Ml": "#9ca3af"}
+    reported_mag = pd.to_numeric(cat[mag_col], errors="coerce").values
+    if "mag_type" in cat.columns:
+        mtypes = cat["mag_type"].astype(str).values
+        for sc in ["Ml", "Mb", "Ms", "Mw"]:
+            m = mtypes == sc
+            if m.any():
+                ax1.plot(years[m], reported_mag[m], "o", markersize=3,
+                         alpha=0.55, markeredgewidth=0,
+                         color=scale_colors[sc],
+                         label=f"{sc} ({int(m.sum())})")
+    else:
+        ax1.plot(years, reported_mag, "o", markersize=3, alpha=0.5,
+                 markeredgewidth=0, color="#9ca3af", label="reported")
+    ax1.set_title("(a) Reported magnitudes — mixed scales", fontsize=11)
+    ax1.set_xlabel("Year", fontsize=11)
+    ax1.set_ylabel("Magnitude", fontsize=11)
+    ax1.legend(fontsize=8, framealpha=0.9, title="Preferred scale",
+               title_fontsize=8)
+    ax1.grid(True, linestyle="--", alpha=0.35)
+
     colors = {"raw": "#9ca3af", "mb2mw": "#16a34a", "ms2mw": "#f59e0b",
               "mw": "#2563eb", "user_coeffs": "#9333ea"}
     label_names = {"raw": "kept as reported", "mb2mw": "mb→Mw",
                    "ms2mw": "Ms→Mw", "mw": "reported Mw",
                    "user_coeffs": "user coefficients"}
-    fig, ax = plt.subplots(figsize=(11, 5))
     for key in ["raw", "mb2mw", "ms2mw", "mw", "user_coeffs"]:
         m = src_arr == key
         if m.any():
-            ax.plot(cat["_year"].values[m], mw_used[m], "o", markersize=3,
-                    alpha=0.55, color=colors[key],
-                    label=f"{label_names[key]} ({int(m.sum())})")
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Mw (homogenized)")
-    ax.set_title("Catalogue Homogenized to Mw — per-event basis")
-    ax.legend(fontsize=8)
-    ax.grid(True, linestyle="--", alpha=0.4)
-    plt.tight_layout()
+            ax2.plot(years[m], mw_used[m], "o", markersize=3,
+                     alpha=0.55, markeredgewidth=0, color=colors[key],
+                     label=f"{label_names[key]} ({int(m.sum())})")
+    ax2.set_title("(b) Homogenized to Mw — per-event basis", fontsize=11)
+    ax2.set_xlabel("Year", fontsize=11)
+    ax2.legend(fontsize=8, framealpha=0.9, title="Mw basis",
+               title_fontsize=8)
+    ax2.grid(True, linestyle="--", alpha=0.35)
+
+    fig.tight_layout()
 
     out_cols = [c for c in df.columns if c in cat.columns]
     out_cols += [c for c in ("mag_mw", "mag_mw_src") if c in cat.columns]
