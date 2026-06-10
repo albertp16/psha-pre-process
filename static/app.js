@@ -739,6 +739,23 @@ function loadCatalogMap(force) {
       id: 'cat-click-radius-line', type: 'line', source: 'cat-click-radius',
       paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [4, 2] }
     });
+    // Highlight rings + rank numbers for the current top-5 selection.
+    map.addSource('cat-top5', {
+      type: 'geojson', data: { type: 'FeatureCollection', features: [] }
+    });
+    map.addLayer({
+      id: 'cat-top5-ring', type: 'circle', source: 'cat-top5',
+      paint: { 'circle-radius': 14, 'circle-color': 'rgba(0,0,0,0)',
+               'circle-stroke-width': 3, 'circle-stroke-color': '#f59e0b' }
+    });
+    map.addLayer({
+      id: 'cat-top5-rank', type: 'symbol', source: 'cat-top5',
+      layout: { 'text-field': ['to-string', ['get', 'rank']],
+                'text-size': 13, 'text-offset': [0, -1.6],
+                'text-allow-overlap': true },
+      paint: { 'text-color': '#f59e0b',
+               'text-halo-color': '#1f2937', 'text-halo-width': 1.2 }
+    });
     map.on('click', function (e) {
       var hits = map.queryRenderedFeatures(e.point, { layers: ['eq-circles-map-catalog'] });
       if (hits.length) return;   // direct hit on a quake: the popup handles it
@@ -796,6 +813,20 @@ function showCatalogTop5(lat, lon, map) {
       map.getSource('cat-click-radius').setData(
         createGeoJSONCircle([lon, lat], CAT_CLICK_RADIUS_KM));
     }
+    // Mark the top 5 on the map with numbered highlight rings.
+    if (map && map.getSource('cat-top5')) {
+      map.getSource('cat-top5').setData({
+        type: 'FeatureCollection',
+        features: top.map(function (h, idx) {
+          return {
+            type: 'Feature',
+            geometry: { type: 'Point',
+                        coordinates: [h.ev.longitude, h.ev.latitude] },
+            properties: { rank: idx + 1, id: h.ev.id, mag: h.ev.mag }
+          };
+        })
+      });
+    }
 
     var el = document.getElementById('cat-top5');
     if (!el) return;
@@ -822,12 +853,13 @@ function showCatalogTop5(lat, lon, map) {
            String(ev.day).padStart(2, '0') + ' (time flagged)');
       var coords = Number(ev.latitude).toFixed(2) + '°N, ' +
                    Number(ev.longitude).toFixed(2) + '°E';
-      html += '<tr>' +
+      html += '<tr class="cat-top5-row" style="cursor:pointer" ' +
+        'data-lat="' + ev.latitude + '" data-lon="' + ev.longitude + '" ' +
+        'title="' + escapeHtml(String(ev.id)) + ' — click to zoom the map to this event">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td><strong>M ' + (ev.mag != null ? Number(ev.mag).toFixed(1) : '—') + '</strong>' +
           (ev.mag_type ? ' (' + escapeHtml(String(ev.mag_type)) + ')' : '') + '</td>' +
-        '<td>' + escapeHtml(desc) +
-          ' <span style="color:var(--text2)">[' + escapeHtml(String(ev.id)) + ']</span></td>' +
+        '<td>' + escapeHtml(desc) + '</td>' +
         '<td>' + escapeHtml(date) + '</td>' +
         '<td>' + coords + '</td>' +
         '<td>' + (ev.depth_km != null ? Number(ev.depth_km).toFixed(0) : '—') + '</td>' +
@@ -835,9 +867,19 @@ function showCatalogTop5(lat, lon, map) {
     });
     html += '</tbody></table></div>';
     html += '<p style="color:var(--text2);font-size:12px">' + hits.length +
-      ' event(s) within the radius; ranked by preferred magnitude. The PHIVOLCS source has ' +
-      'no place-name field, so the location is described relative to the clicked point.</p></div>';
+      ' event(s) within the radius; ranked by preferred magnitude. The numbered rings on the ' +
+      'map mark these five events (click a row to zoom to it; hover for the event id). ' +
+      'The PHIVOLCS source has no place-name field, so the location is described relative ' +
+      'to the clicked point.</p></div>';
     el.innerHTML = html;
+    el.onclick = function (e) {
+      var tr = e.target.closest('tr.cat-top5-row');
+      if (!tr || !window._catMap) return;
+      window._catMap.flyTo({
+        center: [parseFloat(tr.dataset.lon), parseFloat(tr.dataset.lat)],
+        zoom: 8
+      });
+    };
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
