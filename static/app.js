@@ -731,7 +731,7 @@ function loadCatalogMap(force) {
              'Depth: ' + Number(p.depth_km).toFixed(0) + ' km<br>' + dt;
     });
 
-    // Click anywhere on the map: list the top 5 events within 100 km.
+    // Click anywhere on the map: list the top 5 events within 300 km.
     map.addSource('cat-click-radius', {
       type: 'geojson', data: { type: 'FeatureCollection', features: [] }
     });
@@ -749,7 +749,8 @@ function loadCatalogMap(force) {
 
 
 // ── Catalog: top 5 earthquakes within the clicked area ──
-var CAT_CLICK_RADIUS_KM = 100;
+// 300 km matches the site-radius convention used on the Declustering page.
+var CAT_CLICK_RADIUS_KM = 300;
 
 function jsHaversineKm(lat1, lon1, lat2, lon2) {
   var R = 6371.0, toRad = Math.PI / 180;
