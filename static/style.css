@@ -175,3 +175,10 @@ tr.deriv-row > td { padding-top:0; }
 .gmf-track.on::before { transform:translateX(20px); }
 .gmf-fmt-opt { font-size:13px; color:var(--text2); transition:0.2s; user-select:none; cursor:pointer; }
 .gmf-fmt-opt.active { color:var(--text); font-weight:600; }
+
+/* ── GitHub corner ribbon ── */
+.gh-ribbon { position:fixed; top:34px; right:-64px; z-index:1200; transform:rotate(45deg);
+  background:#1e3a8a; color:#fff; padding:7px 72px; font-size:13px; font-weight:600;
+  letter-spacing:0.5px; text-decoration:none; box-shadow:0 2px 6px rgba(0,0,0,0.3);
+  border:1px solid rgba(255,255,255,0.35); }
+.gh-ribbon:hover { background:#1d4ed8; color:#fff; }

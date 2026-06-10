@@ -5,6 +5,8 @@ Catalogue pre-processing web app for Probabilistic Seismic Hazard Analysis, buil
 Ported from `seismicprocesspy` (sibling repo at `Desktop\seismicprocesspy`): Declustering, Completeness
 Analysis, Gutenberg-Richter, MFD, and Max Magnitude, plus Mapbox epicenter maps.
 
+Developed by **Albert Pamonag** and **Camille Pajarillaga** — APEC Consultancy.
+
 ## Quick start
 
 ```bash

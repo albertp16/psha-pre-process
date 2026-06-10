@@ -1,7 +1,7 @@
 """
 PSHA Pre-Process - PHIVOLCS Earthquake Catalogue
 Catalogue pre-processing for Probabilistic Seismic Hazard Analysis
-by Albert Pamonag
+Developed by Albert Pamonag and Camille Pajarillaga
 
 Flask backend. Ported from seismicprocesspy (Declustering, Completeness,
 Gutenberg-Richter, MFD, Max Magnitude + Mapbox maps), preloaded with the
