@@ -22,9 +22,18 @@
       <div class="form-group"><label>Time col</label><input id="dec-time" value="time"></div>
       <div class="form-group"><label>Depth col</label><input id="dec-depth" value="depth"></div>
     </div>
+    <h3>Site Location</h3>
     <div class="form-row">
-      <div class="form-group"><label>Site Latitude</label><input type="number" id="dec-slat" value="14.60" step="any"></div>
-      <div class="form-group"><label>Site Longitude</label><input type="number" id="dec-slon" value="121.00" step="any"></div>
+      <div class="form-group"><label>Site</label>
+        <select id="dec-site" onchange="applySitePreset()">
+          <option value="14.62758,121.08727" selected>Project Site &mdash; 14.62758&deg; N, 121.08727&deg; E</option>
+          <option value="custom">Custom (user input)</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Site Latitude (&deg;N)</label><input type="number" id="dec-slat" value="14.62758" step="any" readonly></div>
+      <div class="form-group"><label>Site Longitude (&deg;E)</label><input type="number" id="dec-slon" value="121.08727" step="any" readonly></div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label>Mapbox Token (optional)</label><input type="text" id="dec-mapbox" placeholder="pk.ey..."></div>
       <div class="form-group"><label>Map Style</label>
         <select id="dec-mapstyle">

@@ -373,8 +373,9 @@ def api_declustering():
     mag_col = request.form.get("mag_col", "mag")
     time_col = request.form.get("time_col", "time")
     depth_col = request.form.get("depth_col", "depth")
-    site_lat = float(request.form.get("site_lat", 14.60))
-    site_lon = float(request.form.get("site_lon", 121.00))
+    # Fallbacks mirror the frontend's default site preset (Project Site)
+    site_lat = float(request.form.get("site_lat", 14.62758))
+    site_lon = float(request.form.get("site_lon", 121.08727))
 
     methods = []
     if request.form.get("use_gk", "1") == "1":

@@ -238,3 +238,6 @@ tr.deriv-row > td { padding-top:0; }
 
 /* Hide ribbon on small screens */
 @media(max-width:768px) { .gh-ribbon { display:none; } }
+
+/* Locked site coordinate fields (preset selected) */
+.form-group input[readonly] { opacity:0.6; cursor:not-allowed; }

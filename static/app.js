@@ -60,6 +60,27 @@ function spin(id, on) {
   if (s) s.classList.toggle('show', on);
 }
 
+// Site preset dropdown (Declustering): a preset fills and locks the lat/lon
+// fields; "Custom (user input)" unlocks them for manual entry.
+function applySitePreset() {
+  var sel = document.getElementById('dec-site');
+  var lat = document.getElementById('dec-slat');
+  var lon = document.getElementById('dec-slon');
+  if (!sel || !lat || !lon) return;
+  if (sel.value === 'custom') {
+    lat.readOnly = false;
+    lon.readOnly = false;
+    lat.focus();
+    toast('Enter the site latitude and longitude');
+  } else {
+    var parts = sel.value.split(',');
+    lat.value = parts[0];
+    lon.value = parts[1];
+    lat.readOnly = true;
+    lon.readOnly = true;
+  }
+}
+
 // Disable a Run button (and show its spinner) while a request is in flight.
 function busy(btnId, spinId, on) {
   spin(spinId, on);
