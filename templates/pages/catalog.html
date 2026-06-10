@@ -27,8 +27,11 @@
     <div id="map-catalog" class="map-container" style="flex:1; height:auto; min-height:80vh;"></div>
     <div id="cat-legend"></div>
   </div>
-  <button class="btn btn-secondary" style="margin-top:8px"
+  <p style="color:var(--text2);font-size:13px;margin-top:6px">
+    Click anywhere on the map to list the top 5 earthquakes within 100 km of that point.</p>
+  <button class="btn btn-secondary" style="margin-top:4px"
           onclick="downloadMap('map-catalog','phivolcs_catalog_map.png')">Download Map</button>
 
+  <div id="cat-top5"></div>
   <div id="cat-notes"></div>
 </div>

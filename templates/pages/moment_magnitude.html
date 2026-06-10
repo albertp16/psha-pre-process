@@ -1,0 +1,40 @@
+<!-- ═══════════ MOMENT MAGNITUDE (STEP 1) ═══════════ -->
+<div id="page-momentmag" class="page">
+  <h1>Moment Magnitude (Mw) &mdash; Step 1: Homogenization</h1>
+  <p>Convert the mixed-scale catalogue to one consistent moment-magnitude scale before any
+     analysis (BBS Sec. 3.3.5, p. 69). Per event: reported Mw &gt; Ms&rarr;Mw &gt; mb&rarr;Mw
+     (Scordilis 2006, cited via Lamessa et al. 2019, p. 5), each relation applied only inside
+     its validity range &mdash; the largest events are never extrapolated; Ml-only events are
+     kept as reported and flagged (no folder-backed Ml&rarr;Mw relation).</p>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label><input type="checkbox" id="mom-usedefault" checked> Use PHIVOLCS default catalog (1907&ndash;2025, 3,577 events)</label>
+    </div>
+  </div>
+
+  <div class="file-upload" id="mom-drop">
+    Or upload a raw catalog (.csv, .hmtk) to override the default
+    <input type="file" accept=".csv,.hmtk,.txt" id="mom-file">
+  </div>
+
+  <div id="mom-cols">
+    <div class="form-row">
+      <div class="form-group"><label>Magnitude col</label><input id="mom-mag" value="mag"></div>
+      <div class="form-group"><label>Time col</label><input id="mom-time" value="time"></div>
+      <div class="form-group"><label>Magnitude-scale col (for custom coefficients)</label><input id="mom-magtype" value="mag_type"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label>Custom Mw coefficients (override) &mdash; <code>scale,slope,intercept</code> per line (Mw = slope&middot;M + intercept).
+          Leave empty to use the cited global relations; region-specific relations must be cited by the user.</label>
+        <textarea id="mom-harmonize" rows="3" placeholder="Ms,0.67,2.07&#10;Mb,1.38,-1.79"></textarea>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="mom-run" onclick="runMomentMag()">Homogenize to Mw</button>
+    <span class="spinner" id="mom-spin"></span>
+  </div>
+
+  <div id="mom-results"></div>
+</div>

@@ -35,11 +35,12 @@
   </a>
 
   <div class="nav-section">Processing Workflow</div>
-  <a href="#" data-page="declustering"><span class="step">1</span> Declustering</a>
-  <a href="#" data-page="completeness"><span class="step">2</span> Completeness Analysis</a>
-  <a href="#" data-page="gr"><span class="step">3</span> Gutenberg-Richter</a>
-  <a href="#" data-page="mfd"><span class="step">4</span> MFD</a>
-  <a href="#" data-page="mmax"><span class="step">5</span> Max Magnitude</a>
+  <a href="#" data-page="momentmag"><span class="step">1</span> Moment Magnitude (Mw)</a>
+  <a href="#" data-page="declustering"><span class="step">2</span> Declustering</a>
+  <a href="#" data-page="completeness"><span class="step">3</span> Completeness Analysis</a>
+  <a href="#" data-page="gr"><span class="step">4</span> Gutenberg-Richter</a>
+  <a href="#" data-page="mfd"><span class="step">5</span> MFD</a>
+  <a href="#" data-page="mmax"><span class="step">6</span> Max Magnitude</a>
 
   <hr style="margin-top:auto">
   <div class="sidebar-tools">
@@ -53,6 +54,7 @@
 
 <div class="main">
   {% include "pages/catalog.html" %}
+  {% include "pages/moment_magnitude.html" %}
   {% include "pages/declustering.html" %}
   {% include "pages/completeness.html" %}
   {% include "pages/gr.html" %}

@@ -168,15 +168,18 @@ function sciTex(x) {
   return m.toFixed(2) + '\\times 10^{' + e + '}';
 }
 
-var MMAX_SRC_LABELS = {
+var SRC_LABELS = {
   mw: 'reported Mw', ms2mw: 'Ms→Mw', mb2mw: 'mb→Mw',
   raw: 'kept as reported', user_coeffs: 'user coefficients',
   harmonized: 'harmonized (step 1)'
 };
 
+// Registry of clickable event tables: key -> {events, rel}.
+window._evtReg = {};
+
 // Cited method equations (vault Day 16 / Reference Folder), KaTeX-rendered.
-function renderMmaxMethod(container, rel) {
-  var eqs = [
+function methodEqsMw(rel) {
+  return [
     { tex: 'M_w = \\tfrac{2}{3}\\log_{10} M_0 - 10.7\\;(M_0\\,\\mathrm{dyne{\\cdot}cm})' +
            ' \\;\\Longleftrightarrow\\; M_0 = 10^{1.5\\,M_w + 9.05}\\,\\mathrm{N{\\cdot}m}',
       note: rel.moment_cite },
@@ -185,14 +188,22 @@ function renderMmaxMethod(container, rel) {
       note: rel.ms.cite },
     { tex: 'M_w = ' + rel.mb.a + '\\,m_b + ' + rel.mb.b +
            ' \\quad (' + rel.mb.lo + ' \\le m_b \\le ' + rel.mb.hi + ')',
-      note: rel.mb.cite },
+      note: rel.mb.cite }
+  ];
+}
+
+function methodEqsMmax(rel) {
+  return methodEqsMw(rel).concat([
     { tex: '\\hat b = \\log_{10}(e) \\,/\\, (\\bar{m} - m_{min})',
       note: rel.b_cite },
     { tex: '\\hat m_{max} = m^{obs}_{max} + \\frac{E_1(n_2) - E_1(n_1)}{\\beta\\,e^{-n_2}}' +
            ' + m_{min}\\,e^{-n},\\quad n_1 = \\frac{n}{1 - e^{-\\beta(m_{max}-m_{min})}},' +
            '\\quad n_2 = n_1 e^{-\\beta(m_{max}-m_{min})}',
       note: rel.mmax_cite + ' (β = b·ln 10)' }
-  ];
+  ]);
+}
+
+function renderMethodEqs(container, eqs) {
   eqs.forEach(function (eq) {
     var row = document.createElement('div');
     row.style.cssText = 'margin:10px 0;padding:8px 12px;background:var(--bg2);border-radius:6px;overflow-x:auto';
@@ -207,20 +218,20 @@ function renderMmaxMethod(container, rel) {
   });
 }
 
-function _mmaxTd(v) { return '<td>' + (v !== null && v !== undefined ? v : '-') + '</td>'; }
+function _evtTd(v) { return '<td>' + (v !== null && v !== undefined ? v : '-') + '</td>'; }
 
-function buildMmaxEventsRows(events) {
+function buildEventsRows(events, key) {
   var h = '';
   for (var i = 0; i < events.length; i++) {
     var ev = events[i];
-    h += '<tr class="mmax-evt" data-i="' + ev._i + '" style="cursor:pointer" ' +
+    h += '<tr class="evt-row" data-key="' + key + '" data-i="' + ev._i + '" style="cursor:pointer" ' +
          'title="Click for the cited computation">' +
       '<td>' + escapeHtml(String(ev.id)) + '</td>' +
       '<td>' + escapeHtml(String(ev.date)) + '</td>' +
-      _mmaxTd(ev.ml) + _mmaxTd(ev.mb) + _mmaxTd(ev.ms) + _mmaxTd(ev.mw) +
+      _evtTd(ev.ml) + _evtTd(ev.mb) + _evtTd(ev.ms) + _evtTd(ev.mw) +
       '<td>' + (ev.mag !== null && ev.mag !== undefined ? ev.mag : '-') +
         (ev.mag_type ? ' (' + escapeHtml(String(ev.mag_type)) + ')' : '') + '</td>' +
-      '<td>' + escapeHtml(MMAX_SRC_LABELS[ev.src] || String(ev.src)) + '</td>' +
+      '<td>' + escapeHtml(SRC_LABELS[ev.src] || String(ev.src)) + '</td>' +
       '<td><strong>' + Number(ev.mw_used).toFixed(2) + '</strong></td>' +
       '<td>' + Number(ev.m0).toExponential(2) + '</td>' +
       '</tr>';
@@ -228,32 +239,44 @@ function buildMmaxEventsRows(events) {
   return h;
 }
 
-function buildMmaxEventsTable(events) {
+function buildEventsTable(events, key) {
   var cols = ['ID', 'Date', 'Ml', 'Mb', 'Ms', 'Mw', 'Preferred', 'Mw basis',
               'Mw used', 'M0 (N·m)'];
   var h = '<div class="tbl-scroll" style="max-height:480px;overflow:auto"><table><thead><tr>';
   cols.forEach(function (c) { h += '<th>' + c + '</th>'; });
-  h += '</tr></thead><tbody id="mmax-evt-body">' + buildMmaxEventsRows(events) + '</tbody></table></div>';
+  h += '</tr></thead><tbody id="evt-body-' + key + '">' + buildEventsRows(events, key) + '</tbody></table></div>';
   h += '<p style="color:var(--text2);font-size:12px">' + events.length +
        ' events — click any row to see its Mw conversion and seismic moment, with citations.</p>';
   return h;
 }
 
-function filterMmaxEvents() {
-  var q = (document.getElementById('mmax-evt-filter').value || '').trim().toLowerCase();
-  var evs = window._mmaxEvents || [];
+function filterEvtTable(key) {
+  var inp = document.getElementById('evt-filter-' + key);
+  var reg = window._evtReg[key] || {};
+  var evs = reg.events || [];
+  var q = (inp && inp.value || '').trim().toLowerCase();
   var f = !q ? evs : evs.filter(function (e) {
     return String(e.id).toLowerCase().indexOf(q) >= 0 ||
            String(e.date).indexOf(q) >= 0 ||
            String(e.mag_type || '').toLowerCase().indexOf(q) >= 0 ||
-           (MMAX_SRC_LABELS[e.src] || String(e.src)).toLowerCase().indexOf(q) >= 0;
+           (SRC_LABELS[e.src] || String(e.src)).toLowerCase().indexOf(q) >= 0;
   });
-  var body = document.getElementById('mmax-evt-body');
-  if (body) body.innerHTML = buildMmaxEventsRows(f);
+  var body = document.getElementById('evt-body-' + key);
+  if (body) body.innerHTML = buildEventsRows(f, key);
 }
 
-function mmaxEventDetailNode(ev) {
-  var rel = window._mmaxRel || {};
+function wireEvtTable(key) {
+  var el = document.getElementById('evt-table-' + key);
+  if (el) {
+    el.addEventListener('click', function (e) {
+      var tr = e.target.closest('tr.evt-row');
+      if (tr) toggleEvtDetail(tr);
+    });
+  }
+}
+
+function evtDetailNode(ev, rel) {
+  rel = rel || {};
   var wrap = document.createElement('div');
   wrap.style.cssText = 'padding:10px 8px;background:var(--bg2);border-radius:6px';
 
@@ -320,16 +343,17 @@ function mmaxEventDetailNode(ev) {
   return wrap;
 }
 
-function toggleMmaxDetail(tr) {
+function toggleEvtDetail(tr) {
   var next = tr.nextElementSibling;
-  if (next && next.classList.contains('mmax-evt-detail')) { next.remove(); return; }
-  var ev = (window._mmaxEvents || [])[parseInt(tr.dataset.i, 10)];
+  if (next && next.classList.contains('evt-detail')) { next.remove(); return; }
+  var reg = window._evtReg[tr.dataset.key] || {};
+  var ev = (reg.events || [])[parseInt(tr.dataset.i, 10)];
   if (!ev) return;
   var row = document.createElement('tr');
-  row.className = 'mmax-evt-detail';
+  row.className = 'evt-detail';
   var cell = document.createElement('td');
   cell.colSpan = 10;
-  cell.appendChild(mmaxEventDetailNode(ev));
+  cell.appendChild(evtDetailNode(ev, reg.rel));
   row.appendChild(cell);
   tr.parentNode.insertBefore(row, tr.nextSibling);
 }
@@ -706,6 +730,114 @@ function loadCatalogMap(force) {
              'M ' + Number(p.mag).toFixed(1) + ' (' + p.mag_type + ')<br>' +
              'Depth: ' + Number(p.depth_km).toFixed(0) + ' km<br>' + dt;
     });
+
+    // Click anywhere on the map: list the top 5 events within 100 km.
+    map.addSource('cat-click-radius', {
+      type: 'geojson', data: { type: 'FeatureCollection', features: [] }
+    });
+    map.addLayer({
+      id: 'cat-click-radius-line', type: 'line', source: 'cat-click-radius',
+      paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [4, 2] }
+    });
+    map.on('click', function (e) {
+      var hits = map.queryRenderedFeatures(e.point, { layers: ['eq-circles-map-catalog'] });
+      if (hits.length) return;   // direct hit on a quake: the popup handles it
+      showCatalogTop5(e.lngLat.lat, e.lngLat.lng, map);
+    });
+  });
+}
+
+
+// ── Catalog: top 5 earthquakes within the clicked area ──
+var CAT_CLICK_RADIUS_KM = 100;
+
+function jsHaversineKm(lat1, lon1, lat2, lon2) {
+  var R = 6371.0, toRad = Math.PI / 180;
+  var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function bearingCompass(lat1, lon1, lat2, lon2) {
+  var toRad = Math.PI / 180;
+  var dLon = (lon2 - lon1) * toRad;
+  var y = Math.sin(dLon) * Math.cos(lat2 * toRad);
+  var x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+          Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos(dLon);
+  var brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(brng / 45) % 8];
+}
+
+function ensureCatEvents(cb) {
+  if (window._catEvents) { cb(window._catEvents); return; }
+  fetch('/data/catalog.json').then(function (r) { return r.json(); }).then(function (p) {
+    window._catEvents = (p.events || []).filter(function (ev) {
+      return ev.latitude != null && ev.longitude != null;
+    });
+    cb(window._catEvents);
+  }).catch(function () { toast('Could not load catalog.json', 'error'); });
+}
+
+function showCatalogTop5(lat, lon, map) {
+  ensureCatEvents(function (events) {
+    var hits = [];
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var dist = jsHaversineKm(lat, lon, ev.latitude, ev.longitude);
+      if (dist <= CAT_CLICK_RADIUS_KM) hits.push({ ev: ev, dist: dist });
+    }
+    hits.sort(function (a, b) { return (b.ev.mag || -99) - (a.ev.mag || -99); });
+    var top = hits.slice(0, 5);
+
+    if (map && map.getSource('cat-click-radius')) {
+      map.getSource('cat-click-radius').setData(
+        createGeoJSONCircle([lon, lat], CAT_CLICK_RADIUS_KM));
+    }
+
+    var el = document.getElementById('cat-top5');
+    if (!el) return;
+    var title = 'Top 5 earthquakes within ' + CAT_CLICK_RADIUS_KM + ' km of ' +
+      lat.toFixed(3) + '°N, ' + lon.toFixed(3) + '°E';
+    var html = '<div class="result-card"><h3>' + title + '</h3>';
+    if (!top.length) {
+      html += '<p style="color:var(--text2)">No catalogued events within ' +
+        CAT_CLICK_RADIUS_KM + ' km of the clicked point.</p></div>';
+      el.innerHTML = html;
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    html += '<div class="tbl-scroll" style="overflow-x:auto"><table><thead><tr>' +
+      ['No.', 'Magnitude', 'Location Description', 'Date', 'Coordinates', 'Depth (km)']
+        .map(function (c) { return '<th>' + c + '</th>'; }).join('') +
+      '</tr></thead><tbody>';
+    top.forEach(function (h, idx) {
+      var ev = h.ev;
+      var desc = Math.round(h.dist) + ' km ' +
+        bearingCompass(lat, lon, ev.latitude, ev.longitude) + ' of clicked point';
+      var date = ev.datetime_utc ? String(ev.datetime_utc).slice(0, 10)
+        : (ev.year + '-' + String(ev.month).padStart(2, '0') + '-' +
+           String(ev.day).padStart(2, '0') + ' (time flagged)');
+      var coords = Number(ev.latitude).toFixed(2) + '°N, ' +
+                   Number(ev.longitude).toFixed(2) + '°E';
+      html += '<tr>' +
+        '<td>' + (idx + 1) + '</td>' +
+        '<td><strong>M ' + (ev.mag != null ? Number(ev.mag).toFixed(1) : '—') + '</strong>' +
+          (ev.mag_type ? ' (' + escapeHtml(String(ev.mag_type)) + ')' : '') + '</td>' +
+        '<td>' + escapeHtml(desc) +
+          ' <span style="color:var(--text2)">[' + escapeHtml(String(ev.id)) + ']</span></td>' +
+        '<td>' + escapeHtml(date) + '</td>' +
+        '<td>' + coords + '</td>' +
+        '<td>' + (ev.depth_km != null ? Number(ev.depth_km).toFixed(0) : '—') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<p style="color:var(--text2);font-size:12px">' + hits.length +
+      ' event(s) within the radius; ranked by preferred magnitude. The PHIVOLCS source has ' +
+      'no place-name field, so the location is described relative to the clicked point.</p></div>';
+    el.innerHTML = html;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
 
@@ -1045,6 +1177,65 @@ async function runMFD() {
 
 
 // ════════════════════════════════════════════
+// MOMENT MAGNITUDE (workflow item 1: homogenize to Mw)
+// ════════════════════════════════════════════
+async function runMomentMag() {
+  var fd = new FormData();
+  var src = appendCatalogInput(fd, 'mom');
+  if (!src) return;
+
+  fd.append('mag_col', document.getElementById('mom-mag').value);
+  fd.append('time_col', document.getElementById('mom-time').value);
+  fd.append('mag_type_col', document.getElementById('mom-magtype').value);
+  fd.append('harmonize_coeffs', document.getElementById('mom-harmonize').value);
+
+  busy('mom-run', 'mom-spin', true);
+  try {
+    var r = await fetch('/api/moment_magnitude', { method: 'POST', body: fd });
+    var d = await r.json();
+    if (d.error) { toast(d.error, 'error'); return; }
+    addQAQC('Moment Magnitude', d.qaqc);
+
+    var evs = d.events_detail || [];
+    evs.forEach(function (e, i) { e._i = i; });
+    window._evtReg['mom'] = { events: evs, rel: d.moment_relations || {} };
+    window._momCSV = d.csv;
+
+    var c = d.counts || {};
+    var html = '<div class="result-card">';
+    html += '<div class="metrics">';
+    html += '<div class="metric"><div class="value">' + d.total_events + '</div><div class="label">Events</div></div>';
+    [['mw', 'Reported Mw'], ['ms2mw', 'Ms→Mw'], ['mb2mw', 'mb→Mw'],
+     ['user_coeffs', 'User coefficients'], ['raw', 'Kept as reported']].forEach(function (p) {
+      if (c[p[0]]) html += '<div class="metric"><div class="value">' + c[p[0]] + '</div><div class="label">' + p[1] + '</div></div>';
+    });
+    html += '</div>';
+
+    html += buildPipelineNotes(d);
+    html += '<h2>Method (cited equations)</h2><div id="mom-method"></div>';
+    html += '<h2>Magnitude–Time by Mw Basis</h2>' + plotHTML(d.plot, 'mw_homogenization.png');
+    if (evs.length) {
+      html += '<h2>Event Catalogue — per-event Mw conversion</h2>';
+      html += '<div class="form-row"><div class="form-group">' +
+        '<label>Filter (id / date / scale / basis)</label>' +
+        '<input id="evt-filter-mom" oninput="filterEvtTable(\'mom\')" placeholder="e.g. 1948, Ms, kept"></div></div>';
+      html += '<div id="evt-table-mom">' + buildEventsTable(evs, 'mom') + '</div>';
+    }
+    html += '<button class="btn btn-secondary" style="margin-top:8px" ' +
+      'onclick="downloadBlob(window._momCSV,\'catalogue_mw.csv\')">Download homogenized CSV (mag_mw + basis)</button>';
+    html += '</div>';
+
+    document.getElementById('mom-results').innerHTML = html;
+    var methodEl = document.getElementById('mom-method');
+    if (methodEl && d.moment_relations) renderMethodEqs(methodEl, methodEqsMw(d.moment_relations));
+    wireEvtTable('mom');
+    toast('Homogenization to Mw complete');
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('mom-run', 'mom-spin', false); }
+}
+
+
+// ════════════════════════════════════════════
 // MAX MAGNITUDE
 // ════════════════════════════════════════════
 async function runMmax() {
@@ -1080,8 +1271,7 @@ async function runMmax() {
 
     var evs = d.events_detail || [];
     evs.forEach(function (e, i) { e._i = i; });
-    window._mmaxEvents = evs;
-    window._mmaxRel = d.moment_relations || {};
+    window._evtReg['mmax'] = { events: evs, rel: d.moment_relations || {} };
 
     html += buildPipelineNotes(d);
     html += '<h2>Method (cited equations)</h2><div id="mmax-method"></div>';
@@ -1091,21 +1281,15 @@ async function runMmax() {
       html += '<h2>Event Catalogue — per-event Mw &amp; moment computation</h2>';
       html += '<div class="form-row"><div class="form-group">' +
         '<label>Filter (id / date / scale / basis)</label>' +
-        '<input id="mmax-evt-filter" oninput="filterMmaxEvents()" placeholder="e.g. 1948, Ms, kept"></div></div>';
-      html += '<div id="mmax-evt-table">' + buildMmaxEventsTable(evs) + '</div>';
+        '<input id="evt-filter-mmax" oninput="filterEvtTable(\'mmax\')" placeholder="e.g. 1948, Ms, kept"></div></div>';
+      html += '<div id="evt-table-mmax">' + buildEventsTable(evs, 'mmax') + '</div>';
     }
     html += '</div>';
 
     document.getElementById('mmax-results').innerHTML = html;
     var methodEl = document.getElementById('mmax-method');
-    if (methodEl && d.moment_relations) renderMmaxMethod(methodEl, d.moment_relations);
-    var tableEl = document.getElementById('mmax-evt-table');
-    if (tableEl) {
-      tableEl.addEventListener('click', function (e) {
-        var tr = e.target.closest('tr.mmax-evt');
-        if (tr) toggleMmaxDetail(tr);
-      });
-    }
+    if (methodEl && d.moment_relations) renderMethodEqs(methodEl, methodEqsMmax(d.moment_relations));
+    wireEvtTable('mmax');
     toast('Max magnitude estimation complete');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
   finally { busy('mmax-run', 'mmax-spin', false); }

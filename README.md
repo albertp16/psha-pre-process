@@ -21,12 +21,13 @@ and preloaded — every page runs out of the box, or accepts an uploaded CSV ins
 
 | Step | Page | Method | Key outputs |
 |---|---|---|---|
-| — | **Catalog** | Interactive Mapbox epicenter map | Map + legend, audit status, source notes |
-| 1 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986) | Mainshock catalogues (CSV), maps, mag-time plots |
-| 2 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |
-| 3 | **Gutenberg-Richter** | Maximum-likelihood a/b values | Recurrence plot, rates CSV |
-| 4 | **MFD** | Completeness-corrected rates by depth class | OpenQuake `ArbitraryMFD` + `TruncatedGRMFD` XML, rates CSV |
-| 5 | **Max Magnitude** | Kijko–Sellevoll estimator (Kijko 2004) + observed Mmax, cumulative moment | Mmax estimates, moment-release plot |
+| — | **Catalog** | Interactive Mapbox epicenter map; click anywhere for the top-5 events within 100 km | Map + legend, audit status, top-5 table, source notes |
+| 1 | **Moment Magnitude (Mw)** | Homogenize to Mw (reported Mw > Ms→Mw > mb→Mw, Scordilis 2006 via Lamessa 2019, range-gated) | Homogenized CSV (`mag_mw` + basis), per-event conversion table (LaTeX), basis scatter |
+| 2 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986), mainshock = largest in cluster | Mainshock catalogues (CSV), maps, mag-time plots |
+| 3 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |
+| 4 | **Gutenberg-Richter** | Aki MLE a/b values with Shi–Bolt error, completeness-corrected rates | Recurrence plot, rates CSV |
+| 5 | **MFD** | Completeness-corrected rates by depth class | OpenQuake `ArbitraryMFD` + `TruncatedGRMFD` XML, rates CSV |
+| 6 | **Max Magnitude** | Kijko–Sellevoll estimator (Kijko 2004) + observed Mmax, Mw-aligned cumulative moment | Mmax estimates, moment-release plot, per-event computation table |
 
 <p>
   <img src="docs/gr_recurrence.png" alt="Gutenberg-Richter recurrence plot" width="49%">

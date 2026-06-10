@@ -131,6 +131,30 @@ def test_step1_homogenization_can_be_disabled(client):
     assert any("Moment input aligned to Mw" in n for n in d["pipeline_notes"])
 
 
+def test_moment_magnitude_page_step1(client):
+    r = client.post("/api/moment_magnitude", data={"use_default": "1"})
+    assert r.status_code == 200
+    d = r.get_json()
+    c = d["counts"]
+    assert c["mw"] > 0 and c["ms2mw"] > 0 and c["mb2mw"] > 0
+    assert sum(c.values()) == d["total_events"]
+    assert len(d["events_detail"]) == d["total_events"]
+    # no dedup/decluster on this page: it is step 1 only
+    assert d["total_events"] == d["n_input"]
+    # homogenized CSV carries the provenance columns
+    header = d["csv"].splitlines()[0]
+    assert "mag_mw" in header and "mag_mw_src" in header
+
+
+def test_moment_magnitude_user_coeffs_override(client):
+    r = client.post("/api/moment_magnitude",
+                    data={"use_default": "1",
+                          "harmonize_coeffs": "Ms,0.67,2.07\nMb,1.38,-1.79"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["counts"].get("user_coeffs", 0) > 0
+
+
 def test_max_magnitude_events_detail_computations(client):
     r = client.post("/api/max_magnitude",
                     data={"use_default": "1", "m_min": "4.5"})

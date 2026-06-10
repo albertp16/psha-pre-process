@@ -271,6 +271,53 @@ def _apply_pipeline_pre_steps(cat, form, notes):
     return cat, info
 
 
+def _events_detail_payload(cat, mag_col, form, src_arr, mw_used, moment):
+    """Per-event rows for the clickable catalogue tables (Mw basis + moment),
+    plus the relation constants the client needs to render the computation
+    in LaTeX (Scordilis via Lamessa p. 5; Hanks–Kanamori Eq. 7 p. 2349)."""
+    def _col_list(name):
+        col = form.get(f"{name}_col", name)
+        if col in cat.columns:
+            v = pd.to_numeric(cat[col], errors="coerce")
+            return [None if pd.isna(x) else round(float(x), 2) for x in v]
+        return [None] * len(cat)
+
+    ids = (cat["id"].astype(str).tolist() if "id" in cat.columns
+           else [str(i + 1) for i in range(len(cat))])
+    if _has_datetime_time(cat):
+        dates = cat["_time"].dt.strftime("%Y-%m-%d").tolist()
+    else:
+        dates = [f"{y:.2f}" for y in cat["_year"]]
+    mtypes = (cat["mag_type"].astype(str).tolist()
+              if "mag_type" in cat.columns else [""] * len(cat))
+    reported = [None if pd.isna(x) else round(float(x), 2)
+                for x in pd.to_numeric(cat[mag_col], errors="coerce")]
+
+    events_detail = [
+        {"id": i_, "date": d_, "ml": ml_, "mb": mb_, "ms": ms_, "mw": mw_,
+         "mag": rep_, "mag_type": mt_, "src": str(s_),
+         "mw_used": round(float(mwu_), 3), "m0": float(m0_)}
+        for i_, d_, ml_, mb_, ms_, mw_, rep_, mt_, s_, mwu_, m0_ in zip(
+            ids, dates, _col_list("ml"), _col_list("mb"), _col_list("ms"),
+            _col_list("mw"), reported, mtypes, src_arr, mw_used, moment)
+    ]
+
+    rel_ms = pl.MS_RELATIONS["scordilis2006"]
+    rel_mb = pl.MB_RELATIONS["scordilis2006"]
+    moment_relations = {
+        "ms": {"a": rel_ms[0], "b": rel_ms[1], "lo": rel_ms[2], "hi": rel_ms[3],
+               "cite": "Scordilis 2006, Eq. 8 — Lamessa et al. 2019, p. 5"},
+        "mb": {"a": rel_mb[0], "b": rel_mb[1], "lo": rel_mb[2], "hi": rel_mb[3],
+               "cite": "Scordilis 2006, Eq. 1 — Lamessa et al. 2019, p. 5"},
+        "moment_cite": "Hanks & Kanamori 1979, Eq. 7, p. 2349; "
+                       "BBS Eq. 2.5, pp. 35/57",
+        "mw_cite": "BBS Sec. 3.3.5, p. 69 — reported Mw preferred",
+        "b_cite": "Aki MLE — Lamessa et al. 2019, Eqs. 21–22, p. 7",
+        "mmax_cite": "Kijko 2004, Eqs. 6–8, pp. 1659–1660",
+    }
+    return events_detail, moment_relations
+
+
 def _maybe_decluster_first(cat, form, notes):
     """Optional step 3 for the rate-fitting pages (GR/MFD/Mmax).
 
@@ -413,6 +460,104 @@ def api_catalog_info():
         n_total=meta["total_events"],
         n_excluded_from_analysis=n_no_dt,
         audit=audit,
+    )
+
+
+# ── Moment Magnitude (workflow item 1: homogenize to Mw) ─────────────
+@app.route("/api/moment_magnitude", methods=["POST"])
+def api_moment_magnitude():
+    """Step 1 of the catalogue chain as its own page (BBS Sec. 3.3.5, p. 69):
+    homogenize the mixed-scale catalogue to Mw and show the per-event basis."""
+    mag_col = request.form.get("mag_col", "mag")
+    time_col = request.form.get("time_col", "time")
+
+    df, src_label, err = get_catalog_input(request)
+    if err:
+        return jsonify(error=err), 400
+    if mag_col not in df.columns or time_col not in df.columns:
+        return jsonify(error=f"Columns '{mag_col}'/'{time_col}' not found"), 400
+
+    cat = df.copy()
+    cat["_mag"] = pd.to_numeric(cat[mag_col], errors="coerce")
+    parsed = to_datetime_safe(cat[time_col])
+    if parsed.notna().any():
+        cat["_time"] = parsed
+        cat["_year"] = parsed.dt.year + parsed.dt.dayofyear / 365.25
+    else:
+        cat["_year"] = pd.to_numeric(cat[time_col], errors="coerce")
+    cat = cat.dropna(subset=["_mag", "_year"]).sort_values("_year").reset_index(drop=True)
+    n_input = len(cat)
+    if n_input == 0:
+        return jsonify(error="No valid rows after parsing"), 400
+
+    # This page IS step 1 — run it alone; steps 2–3 belong to the later pages.
+    notes, warnings = [], []
+    form = dict(request.form.items())
+    form["homogenize"] = form.get("homogenize", "1")
+    form["dedup"] = "0"
+    try:
+        cat, _info = _apply_pipeline_pre_steps(cat, form, notes)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    notes = [n for n in notes if not n.startswith("Step 2")]
+    notes.append("Step 2 (duplicates) and step 3 (declustering) are applied "
+                 "on the analysis pages (BBS p. 68).")
+
+    if "mag_mw_src" in cat.columns:
+        src_arr = cat["mag_mw_src"].astype(str).values
+    else:
+        src_arr = np.full(len(cat), "raw", dtype=object)
+        warnings.append("Homogenization did not run — magnitudes left as "
+                        "reported (one consistent Mw scale is required before "
+                        "rate fitting, BBS p. 69).")
+
+    mw_used = cat["_mag"].values
+    moment = pl.seismic_moment_nm(mw_used)
+    events_detail, moment_relations = _events_detail_payload(
+        cat, mag_col, request.form, src_arr, mw_used, moment)
+    labels, cnts = np.unique(src_arr, return_counts=True)
+    counts = {str(l): int(c) for l, c in zip(labels, cnts)}
+
+    # Magnitude-time scatter coloured by the per-event Mw basis.
+    colors = {"raw": "#9ca3af", "mb2mw": "#16a34a", "ms2mw": "#f59e0b",
+              "mw": "#2563eb", "user_coeffs": "#9333ea"}
+    label_names = {"raw": "kept as reported", "mb2mw": "mb→Mw",
+                   "ms2mw": "Ms→Mw", "mw": "reported Mw",
+                   "user_coeffs": "user coefficients"}
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for key in ["raw", "mb2mw", "ms2mw", "mw", "user_coeffs"]:
+        m = src_arr == key
+        if m.any():
+            ax.plot(cat["_year"].values[m], mw_used[m], "o", markersize=3,
+                    alpha=0.55, color=colors[key],
+                    label=f"{label_names[key]} ({int(m.sum())})")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Mw (homogenized)")
+    ax.set_title("Catalogue Homogenized to Mw — per-event basis")
+    ax.legend(fontsize=8)
+    ax.grid(True, linestyle="--", alpha=0.4)
+    plt.tight_layout()
+
+    out_cols = [c for c in df.columns if c in cat.columns]
+    out_cols += [c for c in ("mag_mw", "mag_mw_src") if c in cat.columns]
+    csv_str = cat[out_cols].to_csv(index=False)
+
+    qaqc_parts = [f"Source: {src_label}.", f"Input: {n_input} events."]
+    qaqc_parts.extend(notes)
+    qaqc_parts.extend(f"WARNING: {w}" for w in warnings)
+
+    return jsonify(
+        plot=fig_to_b64(fig),
+        counts=counts,
+        n_input=n_input,
+        total_events=int(len(cat)),
+        events_detail=events_detail,
+        moment_relations=moment_relations,
+        csv=csv_str,
+        pipeline_notes=notes,
+        warnings=warnings,
+        source=src_label,
+        qaqc=" ".join(qaqc_parts),
     )
 
 
@@ -1508,46 +1653,8 @@ def api_max_magnitude():
     else:
         src_arr = msrc
 
-    def _col_list(name):
-        col = request.form.get(f"{name}_col", name)
-        if col in cat.columns:
-            v = pd.to_numeric(cat[col], errors="coerce")
-            return [None if pd.isna(x) else round(float(x), 2) for x in v]
-        return [None] * len(cat)
-
-    ids = (cat["id"].astype(str).tolist() if "id" in cat.columns
-           else [str(i + 1) for i in range(len(cat))])
-    if _has_datetime_time(cat):
-        dates = cat["_time"].dt.strftime("%Y-%m-%d").tolist()
-    else:
-        dates = [f"{y:.2f}" for y in cat["_year"]]
-    mtypes = (cat["mag_type"].astype(str).tolist()
-              if "mag_type" in cat.columns else [""] * len(cat))
-    reported = [None if pd.isna(x) else round(float(x), 2)
-                for x in pd.to_numeric(cat[mag_col], errors="coerce")]
-
-    events_detail = [
-        {"id": i_, "date": d_, "ml": ml_, "mb": mb_, "ms": ms_, "mw": mw_,
-         "mag": rep_, "mag_type": mt_, "src": str(s_),
-         "mw_used": round(float(mwu_), 3), "m0": float(m0_)}
-        for i_, d_, ml_, mb_, ms_, mw_, rep_, mt_, s_, mwu_, m0_ in zip(
-            ids, dates, _col_list("ml"), _col_list("mb"), _col_list("ms"),
-            _col_list("mw"), reported, mtypes, src_arr, mw_moment, moment)
-    ]
-
-    rel_ms = pl.MS_RELATIONS["scordilis2006"]
-    rel_mb = pl.MB_RELATIONS["scordilis2006"]
-    moment_relations = {
-        "ms": {"a": rel_ms[0], "b": rel_ms[1], "lo": rel_ms[2], "hi": rel_ms[3],
-               "cite": "Scordilis 2006, Eq. 8 — Lamessa et al. 2019, p. 5"},
-        "mb": {"a": rel_mb[0], "b": rel_mb[1], "lo": rel_mb[2], "hi": rel_mb[3],
-               "cite": "Scordilis 2006, Eq. 1 — Lamessa et al. 2019, p. 5"},
-        "moment_cite": "Hanks & Kanamori 1979, Eq. 7, p. 2349; "
-                       "BBS Eq. 2.5, pp. 35/57",
-        "mw_cite": "BBS Sec. 3.3.5, p. 69 — reported Mw preferred",
-        "b_cite": "Aki MLE — Lamessa et al. 2019, Eqs. 21–22, p. 7",
-        "mmax_cite": "Kijko 2004, Eqs. 6–8, pp. 1659–1660",
-    }
+    events_detail, moment_relations = _events_detail_payload(
+        cat, mag_col, request.form, src_arr, mw_moment, moment)
 
     fig_cm, ax_cm = plt.subplots(figsize=(10, 5))
     # Step curve: moment accumulates instantaneously at each event time.
