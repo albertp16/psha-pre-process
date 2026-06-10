@@ -1,0 +1,34 @@
+<!-- ═══════════ CATALOG ═══════════ -->
+<div id="page-catalog" class="page active">
+  <h1>PHIVOLCS Earthquake Catalogue</h1>
+  <p>Earthquake Catalogue of the Philippines converted to JSON with a full capture audit
+     (<code>scripts/convert_catalogue.py</code> &rarr; <code>data/catalog.json</code> +
+     <code>data/catalog.geojson</code>, verified by <code>scripts/audit_catalogue.py</code>).
+     This catalogue is preloaded as the default input of every analysis page.</p>
+
+  <div class="form-row">
+    <div class="form-group"><label>Mapbox Token (optional override)</label>
+      <input type="text" id="cat-mapbox" placeholder="pk.ey..." onchange="loadCatalogMap(true)"></div>
+    <div class="form-group"><label>Map Style</label>
+      <select id="cat-mapstyle" onchange="loadCatalogMap(true)">
+        <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+        <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+        <option value="mapbox://styles/mapbox/light-v11">Light</option>
+        <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+        <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+        <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="cat-summary"><p style="color:var(--text2)">Loading catalogue info&hellip;</p></div>
+
+  <div style="display:flex; flex-direction:row; align-items:stretch;">
+    <div id="map-catalog" class="map-container" style="flex:1; min-height:560px;"></div>
+    <div id="cat-legend"></div>
+  </div>
+  <button class="btn btn-secondary" style="margin-top:8px"
+          onclick="downloadMap('map-catalog','phivolcs_catalog_map.png')">Download Map</button>
+
+  <div id="cat-notes"></div>
+</div>

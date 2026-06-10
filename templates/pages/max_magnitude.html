@@ -1,0 +1,39 @@
+<!-- ═══════════ MAX MAGNITUDE ═══════════ -->
+<div id="page-mmax" class="page">
+  <h1>Maximum Magnitude Estimation</h1>
+  <p>Estimate Mmax from the observed maximum and cumulative moment release of the declustered catalogue.</p>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label><input type="checkbox" id="mmax-usedefault" checked> Use PHIVOLCS default catalog (1907&ndash;2025, 3,577 events)</label>
+    </div>
+  </div>
+
+  <div class="file-upload" id="mmax-drop">
+    Or upload a declustered catalog (.csv, .hmtk) to override the default
+    <input type="file" accept=".csv,.hmtk,.txt" id="mmax-file">
+  </div>
+
+  <div id="mmax-cols">
+    <div class="form-row">
+      <div class="form-group"><label>Magnitude col</label><input id="mmax-mag" value="mag"></div>
+      <div class="form-group"><label>Time col</label><input id="mmax-time" value="time"></div>
+    </div>
+    <h3>Parameters</h3>
+    <div class="form-row">
+      <div class="form-group"><label>b-value</label><input type="number" id="mmax-bval" value="1.0" step="0.01"></div>
+      <div class="form-group"><label>sigma-b</label><input type="number" id="mmax-sigmab" value="0.1" step="0.01"></div>
+      <div class="form-group"><label>Mmin</label><input type="number" id="mmax-mmin" value="4.5" step="0.1"></div>
+      <div class="form-group"><label>Input Mmax</label><input type="number" id="mmax-inputmmax" value="8.0" step="0.1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Mmax uncertainty</label><input type="number" id="mmax-sigma" value="0.5" step="0.1"></div>
+      <div class="form-group"><label>Bootstraps</label><input type="number" id="mmax-nboot" value="100" step="10"></div>
+    </div>
+
+    <button class="btn btn-primary" onclick="runMmax()">Estimate Mmax</button>
+    <span class="spinner" id="mmax-spin"></span>
+  </div>
+
+  <div id="mmax-results"></div>
+</div>

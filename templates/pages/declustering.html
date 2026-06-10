@@ -1,0 +1,59 @@
+<!-- ═══════════ DECLUSTERING ═══════════ -->
+<div id="page-declustering" class="page">
+  <h1>Declustering - Gardner-Knopoff Method</h1>
+  <p>Remove aftershocks using magnitude-dependent space-time windows. Compare three windowing methods.</p>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label><input type="checkbox" id="dec-usedefault" checked> Use PHIVOLCS default catalog (1907&ndash;2025, 3,577 events)</label>
+    </div>
+  </div>
+
+  <div class="file-upload" id="dec-drop">
+    Or upload an earthquake catalog (.csv, .hmtk) to override the default
+    <input type="file" accept=".csv,.hmtk,.txt" id="dec-file">
+  </div>
+
+  <div id="dec-cols">
+    <div class="form-row">
+      <div class="form-group"><label>Latitude col</label><input id="dec-lat" value="latitude"></div>
+      <div class="form-group"><label>Longitude col</label><input id="dec-lon" value="longitude"></div>
+      <div class="form-group"><label>Magnitude col</label><input id="dec-mag" value="mag"></div>
+      <div class="form-group"><label>Time col</label><input id="dec-time" value="time"></div>
+      <div class="form-group"><label>Depth col</label><input id="dec-depth" value="depth"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Site Latitude</label><input type="number" id="dec-slat" value="14.60" step="any"></div>
+      <div class="form-group"><label>Site Longitude</label><input type="number" id="dec-slon" value="121.00" step="any"></div>
+      <div class="form-group"><label>Mapbox Token (optional)</label><input type="text" id="dec-mapbox" placeholder="pk.ey..."></div>
+      <div class="form-group"><label>Map Style</label>
+        <select id="dec-mapstyle">
+          <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+          <option value="mapbox://styles/mapbox/light-v11">Light</option>
+          <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+          <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+          <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+          <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+        </select>
+      </div>
+    </div>
+
+    <h3>Windowing Methods</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label><input type="checkbox" id="dec-gk" checked> Gardner &amp; Knopoff (1974)</label>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="dec-gr" checked> Gr&uuml;nthal</label>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="dec-uh" checked> Uhrhammer (1986)</label>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="runDeclustering()">Run Declustering</button>
+    <span class="spinner" id="dec-spin"></span>
+  </div>
+
+  <div id="dec-results"></div>
+</div>

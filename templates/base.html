@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PSHA Pre-Process - PHIVOLCS Catalogue</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+  <h2>PSHA Pre-Process</h2>
+  <div class="subtitle">by Albert Pamonag | APEC Consultancy</div>
+  <hr>
+  <a href="#" data-page="catalog" class="active">Catalog</a>
+
+  <div class="nav-section">Seismic Hazard</div>
+  <a href="#" data-page="declustering">Declustering</a>
+  <a href="#" data-page="completeness">Completeness Analysis</a>
+  <a href="#" data-page="gr">Gutenberg-Richter</a>
+  <a href="#" data-page="mfd">MFD</a>
+  <a href="#" data-page="mmax">Max Magnitude</a>
+
+  <hr style="margin-top:auto">
+  <div class="disclaimer">For APEC Consultancy internal use only. Not for public distribution.</div>
+  <div class="footer">v{{ version }} | psha-pre-process</div>
+</nav>
+
+<div class="main">
+  {% include "pages/catalog.html" %}
+  {% include "pages/declustering.html" %}
+  {% include "pages/completeness.html" %}
+  {% include "pages/gr.html" %}
+  {% include "pages/mfd.html" %}
+  {% include "pages/max_magnitude.html" %}
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const MAPBOX_TOKEN = '{{ mapbox_token }}';
+</script>
+{% if mapbox_token %}
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+{% endif %}
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+{
+  "status": "pass",
+  "generated_utc": "2026-06-10T12:19:42.099221+00:00",
+  "source_file": "Earthquake Catalogue of the Philippines.xlsx",
+  "source_sha256": "e2a22971d6f98dfac02b6d081099f7e365b40dc9ca2e5555d3d58f893ba610a3",
+  "counts": {
+    "events": 3577,
+    "geojson_features": 3577,
+    "xlsx_data_rows": 3577,
+    "nonempty_cells_seen": 38754,
+    "data_cells_reconciled": 47046,
+    "max_row_width_seen": 1011
+  },
+  "ledger": {
+    "total_events": 3577,
+    "per_sheet": {
+      "1907-2018": 3032,
+      "2019-2025": 545
+    },
+    "qa_flag_counts": {
+      "mb_coerced_from_string": 1855,
+      "ml_coerced_from_string": 1250,
+      "invalid_datetime": 1
+    },
+    "invalid_datetime_rows": [
+      [
+        "2019-2025",
+        329
+      ]
+    ],
+    "mag_type_counts": {
+      "Ms": 1686,
+      "Mb": 1035,
+      "Ml": 446,
+      "Mw": 410
+    },
+    "n_duplicate_pairs": 24
+  },
+  "failures": [],
+  "warnings": [
+    "24 exact duplicate origin-time+location pairs: [('PH-0312', 'PH-0317'), ('PH-0313', 'PH-0318'), ('PH-0314', 'PH-0319'), ('PH-0315', 'PH-0320'), ('PH-0316', 'PH-0321')]"
+  ],
+  "info": [
+    "1907-2018: 3032 data rows, all reconciled against events",
+    "2019-2025: 545 data rows, all reconciled against events",
+    "events with preferred mag < 5.0: 1 (workbook preamble nominally M>=5.0)"
+  ],
+  "spot_checks": [
+    {
+      "id": "PH-0001",
+      "sheet": "1907-2018",
+      "row": 12,
+      "datetime_utc": "1907-03-29T20:46:30Z",
+      "lat": 3.0,
+      "lon": 122.0,
+      "depth_km": 500.0,
+      "mag": 7.3,
+      "mag_type": "Ms",
+      "qa_flags": []
+    },
+    {
+      "id": "PH-3577",
+      "sheet": "2019-2025",
+      "row": 556,
+      "datetime_utc": "2025-10-16T23:03:13Z",
+      "lat": 9.69,
+      "lon": 126.22,
+      "depth_km": 28.0,
+      "mag": 6.0,
+      "mag_type": "Mw",
+      "qa_flags": []
+    },
+    {
+      "id": "PH-2620",
+      "sheet": "1907-2018",
+      "row": 2631,
+      "datetime_utc": "2011-02-15T07:18:17.620000Z",
+      "lat": 21.135,
+      "lon": 121.186,
+      "depth_km": 52.0,
+      "mag": 5.7,
+      "mag_type": "Ms",
+      "qa_flags": [
+        "ml_coerced_from_string",
+        "mb_coerced_from_string"
+      ]
+    },
+    {
+      "id": "PH-0457",
+      "sheet": "1907-2018",
+      "row": 468,
+      "datetime_utc": "1967-04-22T17:27:51Z",
+      "lat": 8.27,
+      "lon": 127.13,
+      "depth_km": 84.0,
+      "mag": 5.0,
+      "mag_type": "Mb",
+      "qa_flags": [
+        "mb_coerced_from_string"
+      ]
+    },
+    {
+      "id": "PH-0103",
+      "sheet": "1907-2018",
+      "row": 114,
+      "datetime_utc": "1934-09-06T02:16:52Z",
+      "lat": 6.5,
+      "lon": 126.1,
+      "depth_km": 150.0,
+      "mag": 6.0,
+      "mag_type": "Ms",
+      "qa_flags": []
+    },
+    {
+      "id": "PH-3038",
+      "sheet": "2019-2025",
+      "row": 17,
+      "datetime_utc": "2019-01-24T08:34:53Z",
+      "lat": 19.17,
+      "lon": 121.25,
+      "depth_km": 27.0,
+      "mag": 5.5,
+      "mag_type": "Ms",
+      "qa_flags": []
+    },
+    {
+      "id": "PH-1127",
+      "sheet": "1907-2018",
+      "row": 1138,
+      "datetime_utc": "1973-07-03T07:03:04.900000Z",
+      "lat": 12.21,
+      "lon": 125.33,
+      "depth_km": 33.0,
+      "mag": 6.5,
+      "mag_type": "Mb",
+      "qa_flags": [
+        "mb_coerced_from_string"
+      ]
+    }
+  ]
+}

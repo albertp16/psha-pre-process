@@ -1,0 +1,29 @@
+<!-- ═══════════ GUTENBERG-RICHTER ═══════════ -->
+<div id="page-gr" class="page">
+  <h1>Gutenberg-Richter Recurrence</h1>
+  <p>Estimate a-value and b-value using Maximum Likelihood Estimation.</p>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label><input type="checkbox" id="gr-usedefault" checked> Use PHIVOLCS default catalog (1907&ndash;2025, 3,577 events)</label>
+    </div>
+  </div>
+
+  <div class="file-upload" id="gr-drop">
+    Or upload a declustered catalog CSV to override the default
+    <input type="file" accept=".csv" id="gr-file">
+  </div>
+  <div id="gr-cols">
+    <div class="form-row">
+      <div class="form-group"><label>Magnitude col</label><input id="gr-mag" value="mag"></div>
+      <div class="form-group"><label>Time col</label><input id="gr-time" value="time"></div>
+      <div class="form-group"><label>Bin width (dm)</label><input type="number" id="gr-dm" value="0.1" step="0.05"></div>
+      <div class="form-group"><label>Mc</label><input type="number" id="gr-mc" value="4.45" step="0.05"></div>
+      <div class="form-group"><label>Fitting lower</label><input type="number" id="gr-mlimit" value="5.0" step="0.1"></div>
+      <div class="form-group"><label>Max magnitude</label><input type="number" id="gr-mmax" value="8.0" step="0.5"></div>
+    </div>
+    <button class="btn btn-primary" onclick="runGR()">Compute G-R Parameters</button>
+    <span class="spinner" id="gr-spin"></span>
+  </div>
+  <div id="gr-results"></div>
+</div>

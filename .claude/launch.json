@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "psha-pre-process",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": ["web_app.py"],
+      "port": 5000,
+      "autoPort": true
+    }
+  ]
+}

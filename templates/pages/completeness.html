@@ -1,0 +1,94 @@
+<!-- ═══════════ COMPLETENESS ═══════════ -->
+<div id="page-completeness" class="page">
+  <h1>Completeness Analysis</h1>
+  <p>Stepp (1972) completeness analysis with automated detection and manual override. Outputs for whole catalogue and by depth class.</p>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label><input type="checkbox" id="comp-usedefault" checked> Use PHIVOLCS default catalog (1907&ndash;2025, 3,577 events)</label>
+    </div>
+  </div>
+
+  <div class="file-upload" id="comp-drop">
+    Or upload a declustered catalog (.csv, .hmtk) to override the default
+    <input type="file" accept=".csv,.hmtk,.txt" id="comp-file">
+  </div>
+
+  <div id="comp-cols">
+    <div class="form-row">
+      <div class="form-group"><label>Magnitude col</label><input id="comp-mag" value="mag"></div>
+      <div class="form-group"><label>Time col</label><input id="comp-time" value="time"></div>
+      <div class="form-group"><label>Depth col</label><input id="comp-depth" value="depth"></div>
+    </div>
+
+    <h3>Stepp Algorithm Parameters</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Magnitude bin</label><input type="number" id="comp-magbin" value="1.0" step="0.1"></div>
+      <div class="form-group"><label>Time bin (years)</label><input type="number" id="comp-timebin" value="5.0" step="1"></div>
+      <div class="form-group"><label>Density mag bin</label><input type="number" id="comp-densmagbin" value="0.5" step="0.1"></div>
+      <div class="form-group"><label>Density time bin</label><input type="number" id="comp-denstimebin" value="5" step="1"></div>
+    </div>
+
+    <h3>Mode</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label><input type="radio" name="comp-mode" value="auto" id="comp-auto" checked onchange="toggleCompMode()"> Automated (Stepp 1972)</label>
+      </div>
+      <div class="form-group">
+        <label><input type="radio" name="comp-mode" value="manual" id="comp-manual" onchange="toggleCompMode()"> Manual</label>
+      </div>
+      <div class="form-group">
+        <label><input type="radio" name="comp-mode" value="both" id="comp-both" onchange="toggleCompMode()"> Both (auto + manual overlay)</label>
+      </div>
+    </div>
+
+    <div id="comp-manual-tables" style="display:none">
+      <h3>Manual Completeness Tables (year, magnitude per line)</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Whole Catalogue</label>
+          <textarea id="comp-whole" rows="6">1980,4.8
+1964,5.0
+1955,5.8
+1930,6.5
+1920,7.0</textarea>
+        </div>
+        <div class="form-group">
+          <label>Shallow (0-35 km)</label>
+          <textarea id="comp-shallow" rows="6">1980,4.8
+1964,5.0
+1955,5.8
+1943,6.2
+1930,6.7</textarea>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mid-depth (35-70 km)</label>
+          <textarea id="comp-mid" rows="6">1976,4.8
+1963,5.0
+1957,5.9
+1949,6.6</textarea>
+        </div>
+        <div class="form-group">
+          <label>Deep (70-700 km)</label>
+          <textarea id="comp-deep" rows="6">1988,4.8
+1963,5.2
+1871,7.0</textarea>
+        </div>
+      </div>
+    </div>
+
+    <h3>Depth Classification</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Shallow max (km)</label><input type="number" id="comp-dshallow" value="35"></div>
+      <div class="form-group"><label>Mid max (km)</label><input type="number" id="comp-dmid" value="70"></div>
+      <div class="form-group"><label>Deep max (km)</label><input type="number" id="comp-ddeep" value="700"></div>
+    </div>
+
+    <button class="btn btn-primary" onclick="runCompleteness()">Run Analysis</button>
+    <span class="spinner" id="comp-spin"></span>
+  </div>
+
+  <div id="comp-results"></div>
+</div>
