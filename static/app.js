@@ -505,6 +505,11 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
   });
 }
 
+// Magnitude colour ramp shared by the base quake layers (and restored by
+// resetCatalogMapColors after a top-5 highlight).
+var EQ_MAG_COLOR = ['interpolate', ['linear'], ['get', 'mag'],
+                    4, '#fef08a', 5, '#fb923c', 6, '#ef4444', 7, '#b91c1c', 8, '#7f1d1d'];
+
 // Magnitude-scaled circle layer shared by all maps.
 function addEqCircleLayer(map, containerId) {
   map.addLayer({
@@ -513,7 +518,7 @@ function addEqCircleLayer(map, containerId) {
     source: 'earthquakes-' + containerId,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['get', 'mag'], 4, 3, 5, 5, 6, 8, 7, 14, 8, 20],
-      'circle-color': ['interpolate', ['linear'], ['get', 'mag'], 4, '#fef08a', 5, '#fb923c', 6, '#ef4444', 7, '#b91c1c', 8, '#7f1d1d'],
+      'circle-color': EQ_MAG_COLOR,
       'circle-opacity': 0.75,
       'circle-stroke-width': 0.5,
       'circle-stroke-color': '#000'
@@ -759,22 +764,28 @@ function loadCatalogMap(force) {
       id: 'cat-click-radius-line', type: 'line', source: 'cat-click-radius',
       paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [4, 2] }
     });
-    // Highlight rings + rank numbers for the current top-5 selection.
+    // Highlight dots, rings and rank numbers for the current top-5
+    // selection (red, while the rest of the catalogue dims to grey).
     map.addSource('cat-top5', {
       type: 'geojson', data: { type: 'FeatureCollection', features: [] }
     });
     map.addLayer({
+      id: 'cat-top5-dot', type: 'circle', source: 'cat-top5',
+      paint: { 'circle-radius': 6.5, 'circle-color': '#dc2626',
+               'circle-stroke-width': 1, 'circle-stroke-color': '#fff' }
+    });
+    map.addLayer({
       id: 'cat-top5-ring', type: 'circle', source: 'cat-top5',
       paint: { 'circle-radius': 14, 'circle-color': 'rgba(0,0,0,0)',
-               'circle-stroke-width': 3, 'circle-stroke-color': '#f59e0b' }
+               'circle-stroke-width': 3, 'circle-stroke-color': '#dc2626' }
     });
     map.addLayer({
       id: 'cat-top5-rank', type: 'symbol', source: 'cat-top5',
       layout: { 'text-field': ['to-string', ['get', 'rank']],
                 'text-size': 13, 'text-offset': [0, -1.6],
                 'text-allow-overlap': true },
-      paint: { 'text-color': '#f59e0b',
-               'text-halo-color': '#1f2937', 'text-halo-width': 1.2 }
+      paint: { 'text-color': '#dc2626',
+               'text-halo-color': '#fff', 'text-halo-width': 1.4 }
     });
     map.on('click', function (e) {
       var hits = map.queryRenderedFeatures(e.point, { layers: ['eq-circles-map-catalog'] });
@@ -800,6 +811,20 @@ function loadCatalogMap(force) {
 // ── Catalog: top 5 earthquakes within the selected area ──
 // 300 km matches the site-radius convention used on the Declustering page.
 var CAT_CLICK_RADIUS_KM = 300;
+
+// Restore the magnitude colour ramp and clear the top-5 highlight.
+function resetCatalogMapColors() {
+  var map = window._catMap;
+  if (!map) return;
+  if (map.getLayer('eq-circles-map-catalog')) {
+    map.setPaintProperty('eq-circles-map-catalog', 'circle-color', EQ_MAG_COLOR);
+    map.setPaintProperty('eq-circles-map-catalog', 'circle-opacity', 0.75);
+    map.setPaintProperty('eq-circles-map-catalog', 'circle-stroke-width', 0.5);
+  }
+  var empty = { type: 'FeatureCollection', features: [] };
+  if (map.getSource('cat-top5')) map.getSource('cat-top5').setData(empty);
+  if (map.getSource('cat-click-radius')) map.getSource('cat-click-radius').setData(empty);
+}
 
 // Run the top-5 search from the catalog page's site lat/lon inputs.
 function runCatalogTop5() {
@@ -857,7 +882,8 @@ function showCatalogTop5(lat, lon, map) {
       map.getSource('cat-click-radius').setData(
         createGeoJSONCircle([lon, lat], CAT_CLICK_RADIUS_KM));
     }
-    // Mark the top 5 on the map with numbered highlight rings.
+    // Mark the top 5 in red and dim the rest of the catalogue to a grey
+    // halftone (resetCatalogMapColors restores the magnitude colours).
     if (map && map.getSource('cat-top5')) {
       map.getSource('cat-top5').setData({
         type: 'FeatureCollection',
@@ -870,6 +896,11 @@ function showCatalogTop5(lat, lon, map) {
           };
         })
       });
+      if (map.getLayer('eq-circles-map-catalog')) {
+        map.setPaintProperty('eq-circles-map-catalog', 'circle-color', '#9ca3af');
+        map.setPaintProperty('eq-circles-map-catalog', 'circle-opacity', 0.25);
+        map.setPaintProperty('eq-circles-map-catalog', 'circle-stroke-width', 0);
+      }
     }
 
     var el = document.getElementById('cat-top5');
@@ -911,10 +942,12 @@ function showCatalogTop5(lat, lon, map) {
     });
     html += '</tbody></table></div>';
     html += '<p style="color:var(--text2);font-size:12px">' + hits.length +
-      ' event(s) within the radius; ranked by preferred magnitude. The numbered rings on the ' +
-      'map mark these five events (click a row to zoom to it; hover for the event id). ' +
-      'The PHIVOLCS source has no place-name field, so the location is described relative ' +
-      'to the selected point.</p></div>';
+      ' event(s) within the radius; ranked by preferred magnitude. On the map the top 5 are ' +
+      'marked in red with rank numbers while the rest of the catalogue is dimmed to grey ' +
+      '(click a row to zoom to it; hover for the event id). The PHIVOLCS source has no ' +
+      'place-name field, so the location is described relative to the selected point.</p>';
+    html += '<button class="btn btn-secondary" onclick="resetCatalogMapColors()">' +
+      'Reset map highlight</button></div>';
     el.innerHTML = html;
     el.onclick = function (e) {
       var tr = e.target.closest('tr.cat-top5-row');
