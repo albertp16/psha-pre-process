@@ -62,6 +62,7 @@ function spin(id, on) {
 
 // Site preset dropdown (Declustering + Catalog): a preset fills and locks the
 // lat/lon fields; "Custom (user input)" unlocks them for manual entry.
+// The two pages share one site — changes on either side mirror to the other.
 function applySitePreset(prefix) {
   prefix = prefix || 'dec';
   var sel = document.getElementById(prefix + '-site');
@@ -80,6 +81,24 @@ function applySitePreset(prefix) {
     lat.readOnly = true;
     lon.readOnly = true;
   }
+  syncSiteFields(prefix, prefix === 'dec' ? 'cat' : 'dec');
+}
+
+// Mirror the site preset + coordinates from one page to the other so the
+// Catalog top-5 site and the Declustering site stay identical.
+function syncSiteFields(from, to) {
+  var fs = document.getElementById(from + '-site');
+  var ts = document.getElementById(to + '-site');
+  var fla = document.getElementById(from + '-slat');
+  var tla = document.getElementById(to + '-slat');
+  var flo = document.getElementById(from + '-slon');
+  var tlo = document.getElementById(to + '-slon');
+  if (!fs || !ts || !fla || !tla || !flo || !tlo) return;
+  ts.value = fs.value;
+  tla.value = fla.value;
+  tlo.value = flo.value;
+  tla.readOnly = fla.readOnly;
+  tlo.readOnly = flo.readOnly;
 }
 
 // Disable a Run button (and show its spinner) while a request is in flight.
@@ -770,6 +789,7 @@ function loadCatalogMap(force) {
         lonI.readOnly = false;
         latI.value = e.lngLat.lat.toFixed(5);
         lonI.value = e.lngLat.lng.toFixed(5);
+        syncSiteFields('cat', 'dec');
       }
       showCatalogTop5(e.lngLat.lat, e.lngLat.lng, map);
     });
