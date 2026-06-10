@@ -4,6 +4,22 @@
 let qaqcLog = [];
 let sessionParams = {};
 
+// ── Theme ──
+function syncThemeButton() {
+  var dark = document.documentElement.dataset.theme === 'dark';
+  var icon = document.getElementById('theme-icon');
+  var label = document.getElementById('theme-label');
+  if (icon) icon.textContent = dark ? '☀️' : '🌙';
+  if (label) label.textContent = dark ? 'Light mode' : 'Dark mode';
+}
+function toggleTheme() {
+  var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('theme', next);
+  syncThemeButton();
+}
+syncThemeButton();
+
 // ── Navigation ──
 document.querySelectorAll('.sidebar a[data-page]').forEach(a => {
   a.addEventListener('click', e => {
@@ -31,15 +47,32 @@ document.querySelectorAll('.file-upload input[type=file]').forEach(inp => {
 });
 
 // ── Helpers ──
-function toast(msg) {
+function toast(msg, type) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  t.textContent = msg;
+  t.classList.toggle('error', type === 'error');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), type === 'error' ? 5000 : 3000);
 }
 
 function spin(id, on) {
   const s = document.getElementById(id);
   if (s) s.classList.toggle('show', on);
+}
+
+// Disable a Run button (and show its spinner) while a request is in flight.
+function busy(btnId, spinId, on) {
+  spin(spinId, on);
+  const b = document.getElementById(btnId);
+  if (!b) return;
+  if (on) {
+    b.dataset.label = b.textContent;
+    b.disabled = true;
+    b.textContent = 'Running…';
+  } else {
+    b.disabled = false;
+    if (b.dataset.label) b.textContent = b.dataset.label;
+  }
 }
 
 function addQAQC(module, message) {
@@ -61,7 +94,7 @@ function escapeHtml(s) {
 
 function buildTable(rows, cols, rowClass) {
   if (!rows || !rows.length) return '<p style="color:var(--text2)">No data</p>';
-  var h = '<div style="max-height:500px;overflow:auto"><table><tr>';
+  var h = '<div class="tbl-scroll" style="max-height:500px;overflow:auto"><table><tr>';
   cols.forEach(function(c) { h += '<th>' + c + '</th>'; });
   h += '</tr>';
   for (var i = 0; i < rows.length; i++) {
@@ -105,7 +138,7 @@ function appendCatalogInput(fd, prefix) {
     fd.append('use_default', '1');
     return 'PHIVOLCS default catalog';
   }
-  toast('Upload a catalog or tick "Use PHIVOLCS default catalog"');
+  toast('Upload a catalog or tick "Use PHIVOLCS default catalog"', 'error');
   return false;
 }
 
@@ -163,6 +196,7 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
   });
 
   map.addControl(new mapboxgl.NavigationControl());
+  map.addControl(new mapboxgl.FullscreenControl());
 
   map.on('load', function () {
     // Site marker
@@ -260,17 +294,17 @@ function buildDecLegend(d, suffix, source, showSite) {
     { c: '#3b82f6', label: 'Intermediate (70–300 km)', n: dc.intermediate },
     { c: '#1e3a8a', label: 'Deep (300–700 km)',        n: dc.deep }
   ];
-  var nTxt = function (v) { return v == null ? '' : ' <span style="color:#6b7280">(n=' + v + ')</span>'; };
-  var head = function (t) { return '<div style="font-weight:600; color:#1e3a8a; margin:12px 0 6px">' + t + '</div>'; };
+  var nTxt = function (v) { return v == null ? '' : ' <span style="color:var(--text2)">(n=' + v + ')</span>'; };
+  var head = function (t) { return '<div style="font-weight:600; color:var(--accent); margin:12px 0 6px">' + t + '</div>'; };
 
   var s = '';
   s += '<div id="map-legend-' + suffix + '" style="width:230px; flex-shrink:0; margin:12px 0; padding:14px 16px; ' +
-       'box-sizing:border-box; background:#ffffff; border:1px solid #d1d5db; border-left:4px solid #3b82f6; ' +
+       'box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); ' +
        'border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.08); ' +
-       "font-family:'Inter', sans-serif; color:#1f2937; font-size:13px; line-height:1.5; overflow-y:auto;\">";
+       "font-family:'Inter', sans-serif; color:var(--text); font-size:13px; line-height:1.5; overflow-y:auto;\">";
 
-  s += '<div style="font-weight:700; letter-spacing:1.5px; color:#1e3a8a; margin-bottom:4px">LEGEND</div>';
-  s += '<div style="font-size:11px; color:#6b7280; margin-bottom:8px">Circle colour &amp; size = magnitude</div>';
+  s += '<div style="font-weight:700; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px">LEGEND</div>';
+  s += '<div style="font-size:11px; color:var(--text2); margin-bottom:8px">Circle colour &amp; size = magnitude</div>';
 
   s += head('Magnitude');
   magRows.forEach(function (r) {
@@ -296,7 +330,7 @@ function buildDecLegend(d, suffix, source, showSite) {
   }
 
   s += head('Focal depth');
-  s += '<div style="font-size:11px; color:#6b7280; margin:-2px 0 6px; font-style:italic">' +
+  s += '<div style="font-size:11px; color:var(--text2); margin:-2px 0 6px; font-style:italic">' +
        'Catalog distribution (USGS classes) — not drawn on map; shown on click.</div>';
   depthRows.forEach(function (r) {
     s += '<div style="display:flex; align-items:center; margin:4px 0">' +
@@ -305,10 +339,10 @@ function buildDecLegend(d, suffix, source, showSite) {
          '<span>' + r.label + nTxt(r.n) + '</span></div>';
   });
   if (dc.unknown) {
-    s += '<div style="font-size:11px; color:#6b7280; margin-top:2px">' + dc.unknown + ' event(s) without depth.</div>';
+    s += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown + ' event(s) without depth.</div>';
   }
 
-  s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid #e5e7eb; color:#374151; font-size:12px">';
+  s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border); color:var(--text); font-size:12px">';
   s += '<div>Source: ' + (source || 'Uploaded catalog') + '</div>';
   if (showSite) s += '<div>Radius: 300 km</div>';
   s += '<div>Total events: ' + (d.n_total != null ? d.n_total : '') + '</div>';
@@ -437,6 +471,7 @@ function loadCatalogMap(force) {
   });
   window._catMap = map;
   map.addControl(new mapboxgl.NavigationControl());
+  map.addControl(new mapboxgl.FullscreenControl());
 
   map.on('load', function () {
     map.addSource('earthquakes-map-catalog', { type: 'geojson', data: '/data/catalog.geojson' });
@@ -470,11 +505,11 @@ async function runDeclustering() {
   fd.append('use_gr', document.getElementById('dec-gr').checked ? '1' : '0');
   fd.append('use_uh', document.getElementById('dec-uh').checked ? '1' : '0');
 
-  spin('dec-spin', true);
+  busy('dec-run', 'dec-spin', true);
   try {
     var r = await fetch('/api/declustering', { method: 'POST', body: fd });
     var d = await r.json();
-    if (d.error) { toast(d.error); return; }
+    if (d.error) { toast(d.error, 'error'); return; }
     addQAQC('Declustering', d.qaqc);
 
     var siteLat = parseFloat(document.getElementById('dec-slat').value);
@@ -571,8 +606,8 @@ async function runDeclustering() {
     }
 
     toast('Declustering complete');
-  } catch (e) { toast('Error: ' + e.message); }
-  finally { spin('dec-spin', false); }
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('dec-run', 'dec-spin', false); }
 }
 
 
@@ -609,11 +644,11 @@ async function runCompleteness() {
   fd.append('compl_mid', document.getElementById('comp-mid').value);
   fd.append('compl_deep', document.getElementById('comp-deep').value);
 
-  spin('comp-spin', true);
+  busy('comp-run', 'comp-spin', true);
   try {
     var r = await fetch('/api/completeness', { method: 'POST', body: fd });
     var d = await r.json();
-    if (d.error) { toast(d.error); return; }
+    if (d.error) { toast(d.error, 'error'); return; }
     addQAQC('Completeness', d.qaqc);
 
     var dc = d.depth_counts || {};
@@ -655,8 +690,8 @@ async function runCompleteness() {
     html += '</div>';
     document.getElementById('comp-results').innerHTML = html;
     toast('Completeness analysis done');
-  } catch (e) { toast('Error: ' + e.message); }
-  finally { spin('comp-spin', false); }
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('comp-run', 'comp-spin', false); }
 }
 
 
@@ -675,11 +710,11 @@ async function runGR() {
   fd.append('m_limit', document.getElementById('gr-mlimit').value);
   fd.append('m_max', document.getElementById('gr-mmax').value);
 
-  spin('gr-spin', true);
+  busy('gr-run', 'gr-spin', true);
   try {
     var r = await fetch('/api/gutenberg_richter', { method: 'POST', body: fd });
     var d = await r.json();
-    if (d.error) { toast(d.error); return; }
+    if (d.error) { toast(d.error, 'error'); return; }
     addQAQC('Gutenberg-Richter', d.qaqc);
     sessionParams.gr_a = d.a_value;
     sessionParams.gr_b = d.b_value;
@@ -696,8 +731,8 @@ async function runGR() {
       '</div>';
     window._grCSV = d.rates_csv;
     toast('G-R analysis complete');
-  } catch (e) { toast('Error: ' + e.message); }
-  finally { spin('gr-spin', false); }
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('gr-run', 'gr-spin', false); }
 }
 
 
@@ -719,11 +754,11 @@ async function runMFD() {
   fd.append('compl_mid', document.getElementById('mfd-mid').value);
   fd.append('compl_deep', document.getElementById('mfd-deep').value);
 
-  spin('mfd-spin', true);
+  busy('mfd-run', 'mfd-spin', true);
   try {
     var r = await fetch('/api/mfd', { method: 'POST', body: fd });
     var d = await r.json();
-    if (d.error) { toast(d.error); return; }
+    if (d.error) { toast(d.error, 'error'); return; }
     addQAQC('MFD', d.qaqc);
 
     var html = '<div class="result-card">' +
@@ -765,8 +800,8 @@ async function runMFD() {
     window._mfdCSV = d.rates_csv;
     window._mfdXML = d.oq_xml;
     toast('MFD analysis complete');
-  } catch (e) { toast('Error: ' + e.message); }
-  finally { spin('mfd-spin', false); }
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('mfd-run', 'mfd-spin', false); }
 }
 
 
@@ -787,11 +822,11 @@ async function runMmax() {
   fd.append('mmax_sigma', document.getElementById('mmax-sigma').value);
   fd.append('n_bootstraps', document.getElementById('mmax-nboot').value);
 
-  spin('mmax-spin', true);
+  busy('mmax-run', 'mmax-spin', true);
   try {
     var r = await fetch('/api/max_magnitude', { method: 'POST', body: fd });
     var d = await r.json();
-    if (d.error) { toast(d.error); return; }
+    if (d.error) { toast(d.error, 'error'); return; }
     addQAQC('Max Magnitude', d.qaqc);
 
     var res = d.results;
@@ -809,8 +844,8 @@ async function runMmax() {
 
     document.getElementById('mmax-results').innerHTML = html;
     toast('Max magnitude estimation complete');
-  } catch(e) { toast('Error: ' + e.message); }
-  finally { spin('mmax-spin', false); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { busy('mmax-run', 'mmax-spin', false); }
 }
 
 // ── Boot: catalog page is the landing page ──

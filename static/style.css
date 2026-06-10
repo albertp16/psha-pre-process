@@ -14,8 +14,23 @@
   --plot-bg: #ffffff;
   --plot-font: #1f2937;
 }
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #161a22;
+  --surface2: #1f2530;
+  --border: #2d3442;
+  --text: #e5e7eb;
+  --text2: #9aa3b2;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --plot-bg: #161a22;
+  --plot-font: #e5e7eb;
+}
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; transition:background 0.25s, color 0.25s; }
 
 /* Sidebar */
 .sidebar { width:260px; background:var(--surface); border-right:1px solid var(--border); padding:20px 0; flex-shrink:0; position:fixed; top:0; bottom:0; overflow-y:auto; z-index:10; display:flex; flex-direction:column; }
@@ -23,7 +38,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .sidebar .subtitle { padding:0 20px 16px; font-size:12px; color:var(--text2); }
 .sidebar hr { border:none; border-top:1px solid var(--border); margin:8px 20px; }
 .sidebar .nav-section { padding:16px 20px 4px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.2px; color:var(--accent); opacity:0.7; }
-.sidebar a { display:block; padding:8px 20px 8px 24px; color:var(--text2); text-decoration:none; font-size:13.5px; transition:0.15s; border-left:3px solid transparent; }
+.sidebar a { display:flex; align-items:center; gap:10px; padding:8px 20px 8px 24px; color:var(--text2); text-decoration:none; font-size:13.5px; transition:0.15s; border-left:3px solid transparent; }
 .sidebar a:hover { background:var(--surface2); color:var(--text); border-left-color:var(--border); }
 .sidebar a.active { background:var(--surface2); color:var(--text); border-left-color:var(--accent); font-weight:600; }
 .sidebar .disclaimer { padding:12px 20px; font-size:11px; color:var(--warn); line-height:1.5; margin-top:12px; border-top:1px solid var(--border); }
@@ -182,3 +197,44 @@ tr.deriv-row > td { padding-top:0; }
   letter-spacing:0.5px; text-decoration:none; box-shadow:0 2px 6px rgba(0,0,0,0.3);
   border:1px solid rgba(255,255,255,0.35); }
 .gh-ribbon:hover { background:#1d4ed8; color:#fff; }
+
+/* ── UI polish pass ── */
+
+/* Page fade-in */
+.page.active { animation: pagefade 0.25s ease; }
+@keyframes pagefade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+/* Sidebar workflow step badges */
+.sidebar a .step { display:inline-flex; width:19px; height:19px; border-radius:50%;
+  background:var(--surface2); border:1px solid var(--border); color:var(--text2);
+  font-size:10.5px; font-weight:700; align-items:center; justify-content:center; flex:0 0 auto; transition:0.15s; }
+.sidebar a:hover .step { border-color:var(--accent); color:var(--accent); }
+.sidebar a.active .step { background:var(--accent); border-color:var(--accent); color:#fff; }
+.sidebar a svg { flex:0 0 auto; }
+
+/* Theme toggle */
+.sidebar-tools { padding:10px 20px 0; }
+.theme-btn { width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  padding:8px 12px; border-radius:6px; font-size:12.5px; font-weight:600; cursor:pointer; transition:0.2s; }
+.theme-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+/* Cards & metrics */
+.result-card { box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+.metric { border-left:3px solid var(--accent); min-width:110px; transition:transform 0.15s, box-shadow 0.15s; }
+.metric:hover { transform:translateY(-2px); box-shadow:0 4px 10px rgba(0,0,0,0.10); }
+
+/* Scrollable tables: sticky header */
+.tbl-scroll { border:1px solid var(--border); border-radius:6px; }
+.tbl-scroll table { margin:0; }
+.tbl-scroll th { position:sticky; top:0; z-index:1; box-shadow:inset 0 -1px 0 var(--border); }
+.tbl-scroll tbody tr:hover td { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+
+/* Error toast */
+.toast.error { background:var(--danger); }
+
+/* Plot images sit on white; keep them readable on dark */
+[data-theme="dark"] .plot-img { background:#fff; padding:4px; }
+
+/* Hide ribbon on small screens */
+@media(max-width:768px) { .gh-ribbon { display:none; } }

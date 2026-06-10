@@ -4,7 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PSHA Pre-Process - PHIVOLCS Catalogue</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpolyline points='4 18 9 18 12 8 16 26 20 12 23 18 28 18' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
+<script>
+  // Apply saved theme before first paint to avoid a flash
+  (function () {
+    var t = localStorage.getItem('theme');
+    if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
 </head>
 <body>
 
@@ -15,16 +27,24 @@
   <h2>PSHA Pre-Process</h2>
   <div class="subtitle">Developed by Albert Pamonag &amp; Camille Pajarillaga<br>APEC Consultancy</div>
   <hr>
-  <a href="#" data-page="catalog" class="active">Catalog</a>
+  <a href="#" data-page="catalog" class="active">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+    Catalog
+  </a>
 
-  <div class="nav-section">Seismic Hazard</div>
-  <a href="#" data-page="declustering">Declustering</a>
-  <a href="#" data-page="completeness">Completeness Analysis</a>
-  <a href="#" data-page="gr">Gutenberg-Richter</a>
-  <a href="#" data-page="mfd">MFD</a>
-  <a href="#" data-page="mmax">Max Magnitude</a>
+  <div class="nav-section">Processing Workflow</div>
+  <a href="#" data-page="declustering"><span class="step">1</span> Declustering</a>
+  <a href="#" data-page="completeness"><span class="step">2</span> Completeness Analysis</a>
+  <a href="#" data-page="gr"><span class="step">3</span> Gutenberg-Richter</a>
+  <a href="#" data-page="mfd"><span class="step">4</span> MFD</a>
+  <a href="#" data-page="mmax"><span class="step">5</span> Max Magnitude</a>
 
   <hr style="margin-top:auto">
+  <div class="sidebar-tools">
+    <button class="theme-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+      <span id="theme-icon">&#127769;</span> <span id="theme-label">Dark mode</span>
+    </button>
+  </div>
   <div class="disclaimer">For APEC Consultancy internal use only. Not for public distribution.</div>
   <div class="footer">v{{ version }} | psha-pre-process</div>
 </nav>
