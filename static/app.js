@@ -454,7 +454,7 @@ function buildMapboxMap(containerId, siteLat, siteLon, events, title) {
 function initMap(containerId, token, siteLat, siteLon, events, title) {
   mapboxgl.accessToken = token;
 
-  var map = new mapboxgl.Map({
+  var map = window['_decMap_' + containerId] = new mapboxgl.Map({
     container: containerId,
     style: getMapStyle('dec-mapstyle'),
     center: [siteLon, siteLat],
@@ -472,12 +472,16 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
       .setPopup(new mapboxgl.Popup().setHTML('<strong>Site</strong>'))
       .addTo(map);
 
-    // Earthquake points as GeoJSON
+    // Earthquake points as GeoJSON; events outside the 300 km site radius
+    // are flagged so the circle layer can dim them to the grey halftone.
     var features = events.map(function (e) {
+      var dist = jsHaversineKm(siteLat, siteLon, e.lat, e.lon);
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
-        properties: { mag: e.mag, depth: e.depth || 0 }
+        properties: { mag: e.mag, depth: e.depth || 0,
+                      dist_km: Math.round(dist * 10) / 10,
+                      inside300: dist <= 300 }
       };
     });
 
@@ -486,7 +490,7 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
       data: { type: 'FeatureCollection', features: features }
     });
 
-    addEqCircleLayer(map, containerId);
+    addEqCircleLayer(map, containerId, true);
 
     // 300km radius circle
     var circle300 = createGeoJSONCircle([siteLon, siteLat], 300);
@@ -499,8 +503,11 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
     });
 
     wireEqPopups(map, containerId, function (props) {
+      var inside = props.inside300 === true || props.inside300 === 'true';
       return '<strong>M ' + Number(props.mag).toFixed(1) + '</strong><br>Depth: ' +
-             Number(props.depth).toFixed(1) + ' km';
+             Number(props.depth).toFixed(1) + ' km<br>Site distance: ' +
+             Number(props.dist_km).toFixed(0) + ' km' +
+             (inside ? '' : ' (outside 300 km)');
     });
   });
 }
@@ -510,17 +517,21 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
 var EQ_MAG_COLOR = ['interpolate', ['linear'], ['get', 'mag'],
                     4, '#fef08a', 5, '#fb923c', 6, '#ef4444', 7, '#b91c1c', 8, '#7f1d1d'];
 
-// Magnitude-scaled circle layer shared by all maps.
-function addEqCircleLayer(map, containerId) {
+// Magnitude-scaled circle layer shared by all maps. With dimOutside=true
+// (declustering maps), events flagged inside300=false render in the same
+// grey halftone as the catalog top-5 fade; the magnitude ramp applies
+// inside the 300 km site radius.
+function addEqCircleLayer(map, containerId, dimOutside) {
+  var inside = ['==', ['get', 'inside300'], true];
   map.addLayer({
     id: 'eq-circles-' + containerId,
     type: 'circle',
     source: 'earthquakes-' + containerId,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['get', 'mag'], 4, 3, 5, 5, 6, 8, 7, 14, 8, 20],
-      'circle-color': EQ_MAG_COLOR,
-      'circle-opacity': 0.75,
-      'circle-stroke-width': 0.5,
+      'circle-color': dimOutside ? ['case', inside, EQ_MAG_COLOR, '#9ca3af'] : EQ_MAG_COLOR,
+      'circle-opacity': dimOutside ? ['case', inside, 0.75, 0.25] : 0.75,
+      'circle-stroke-width': dimOutside ? ['case', inside, 0.5, 0] : 0.5,
       'circle-stroke-color': '#000'
     }
   });
@@ -600,6 +611,10 @@ function buildDecLegend(d, suffix, source, showSite) {
          '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
          '<span style="width:24px; border-top:2px dashed #3b82f6; display:inline-block"></span></span>' +
          '<span>300 km radius</span></div>';
+    s += '<div style="display:flex; align-items:center; margin:5px 0">' +
+         '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
+         '<span style="width:12px; height:12px; border-radius:50%; background:#9ca3af; opacity:0.45; display:inline-block"></span></span>' +
+         '<span>Outside 300 km (grey halftone)</span></div>';
   }
 
   s += head('Focal depth');
