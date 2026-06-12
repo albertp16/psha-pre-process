@@ -426,7 +426,7 @@ function getMapStyle(selectId) {
   return sel ? sel.value : 'mapbox://styles/mapbox/satellite-streets-v12';
 }
 
-function buildMapboxMap(containerId, siteLat, siteLon, events, title) {
+function buildMapboxMap(containerId, siteLat, siteLon, events, title, opts) {
   var container = document.getElementById(containerId);
   if (!container) return;
 
@@ -444,14 +444,14 @@ function buildMapboxMap(containerId, siteLat, siteLon, events, title) {
     document.head.appendChild(link);
     var script = document.createElement('script');
     script.src = 'https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js';
-    script.onload = function () { initMap(containerId, token, siteLat, siteLon, events, title); };
+    script.onload = function () { initMap(containerId, token, siteLat, siteLon, events, title, opts); };
     document.head.appendChild(script);
   } else {
-    initMap(containerId, token, siteLat, siteLon, events, title);
+    initMap(containerId, token, siteLat, siteLon, events, title, opts);
   }
 }
 
-function initMap(containerId, token, siteLat, siteLon, events, title) {
+function initMap(containerId, token, siteLat, siteLon, events, title, opts) {
   mapboxgl.accessToken = token;
 
   var map = window['_decMap_' + containerId] = new mapboxgl.Map({
@@ -474,12 +474,13 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
 
     // Earthquake points as GeoJSON; events outside the 300 km site radius
     // are flagged so the circle layer can dim them to the grey halftone.
+    // Unknown depth carries the -1 sentinel (renders grey on depth maps).
     var features = events.map(function (e) {
       var dist = jsHaversineKm(siteLat, siteLon, e.lat, e.lon);
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
-        properties: { mag: e.mag, depth: e.depth || 0,
+        properties: { mag: e.mag, depth: (e.depth == null ? -1 : e.depth),
                       dist_km: Math.round(dist * 10) / 10,
                       inside300: dist <= 300 }
       };
@@ -490,7 +491,7 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
       data: { type: 'FeatureCollection', features: features }
     });
 
-    addEqCircleLayer(map, containerId, true);
+    addEqCircleLayer(map, containerId, true, opts && opts.colorBy);
 
     // 300km radius circle
     var circle300 = createGeoJSONCircle([siteLon, siteLat], 300);
@@ -504,8 +505,11 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
 
     wireEqPopups(map, containerId, function (props) {
       var inside = props.inside300 === true || props.inside300 === 'true';
+      var depth = Number(props.depth);
+      var depthTxt = depth < 0 ? 'n/a' : depth.toFixed(1) + ' km (' +
+        (depth < 35 ? 'shallow' : depth < 70 ? 'mid-depth' : 'deep') + ')';
       return '<strong>M ' + Number(props.mag).toFixed(1) + '</strong><br>Depth: ' +
-             Number(props.depth).toFixed(1) + ' km<br>Site distance: ' +
+             depthTxt + '<br>Site distance: ' +
              Number(props.dist_km).toFixed(0) + ' km' +
              (inside ? '' : ' (outside 300 km)');
     });
@@ -517,19 +521,28 @@ function initMap(containerId, token, siteLat, siteLon, events, title) {
 var EQ_MAG_COLOR = ['interpolate', ['linear'], ['get', 'mag'],
                     4, '#fef08a', 5, '#fb923c', 6, '#ef4444', 7, '#b91c1c', 8, '#7f1d1d'];
 
+// Focal-depth class colours: same 35/70 km boundaries and swatches as the
+// legend (DEPTH_BOUNDS_KM project convention); the -1 no-depth sentinel
+// renders grey.
+var EQ_DEPTH_COLOR = ['case', ['<', ['get', 'depth'], 0], '#9ca3af',
+                      ['step', ['get', 'depth'],
+                       '#93c5fd', 35, '#3b82f6', 70, '#1e3a8a']];
+
 // Magnitude-scaled circle layer shared by all maps. With dimOutside=true
 // (declustering maps), events flagged inside300=false render in the same
-// grey halftone as the catalog top-5 fade; the magnitude ramp applies
-// inside the 300 km site radius.
-function addEqCircleLayer(map, containerId, dimOutside) {
+// grey halftone as the catalog top-5 fade; the colour ramp applies inside
+// the 300 km site radius. colorBy='depth' swaps the magnitude ramp for the
+// focal-depth class colours (size still scales with magnitude).
+function addEqCircleLayer(map, containerId, dimOutside, colorBy) {
   var inside = ['==', ['get', 'inside300'], true];
+  var ramp = colorBy === 'depth' ? EQ_DEPTH_COLOR : EQ_MAG_COLOR;
   map.addLayer({
     id: 'eq-circles-' + containerId,
     type: 'circle',
     source: 'earthquakes-' + containerId,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['get', 'mag'], 4, 3, 5, 5, 6, 8, 7, 14, 8, 20],
-      'circle-color': dimOutside ? ['case', inside, EQ_MAG_COLOR, '#9ca3af'] : EQ_MAG_COLOR,
+      'circle-color': dimOutside ? ['case', inside, ramp, '#9ca3af'] : ramp,
       'circle-opacity': dimOutside ? ['case', inside, 0.75, 0.25] : 0.75,
       'circle-stroke-width': dimOutside ? ['case', inside, 0.5, 0] : 0.5,
       'circle-stroke-color': '#000'
@@ -559,8 +572,10 @@ function downloadMap(containerId, filename) {
 // Build the Mapbox legend as a white sidebar panel.
 // Circle colour AND size encode magnitude; focal depth is a catalog statistic
 // (shown in the click popup, not as a map symbol). `showSite` adds the site
-// pin + 300 km ring rows used by the declustering maps.
-function buildDecLegend(d, suffix, source, showSite) {
+// pin + 300 km ring rows used by the declustering maps. `depthOnMap`
+// (focal-depth-coloured maps) greys the magnitude swatches — size only —
+// and flips the focal-depth note from "not drawn" to "drawn on this map".
+function buildDecLegend(d, suffix, source, showSite, depthOnMap) {
   if (showSite === undefined) showSite = true;
   var mb = d.mag_bins || {};
   var magRows = [
@@ -570,6 +585,9 @@ function buildDecLegend(d, suffix, source, showSite) {
     { c: '#b91c1c', dia: 25, label: '6.0 – 6.9', n: mb.m6 },
     { c: '#7f1d1d', dia: 32, label: '≥ 7.0',     n: mb.ge7 }
   ];
+  if (depthOnMap) {
+    magRows.forEach(function (r) { r.c = '#9ca3af'; });
+  }
   // Focal-depth classes: unified project convention, labels come from the API.
   var dc = d.depth_classes || {};
   var dl = d.depth_class_labels || {};
@@ -588,9 +606,11 @@ function buildDecLegend(d, suffix, source, showSite) {
        "font-family:'Inter', sans-serif; color:var(--text); font-size:13px; line-height:1.5; overflow-y:auto;\">";
 
   s += '<div style="font-weight:700; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px">LEGEND</div>';
-  s += '<div style="font-size:11px; color:var(--text2); margin-bottom:8px">Circle colour &amp; size = magnitude</div>';
+  s += '<div style="font-size:11px; color:var(--text2); margin-bottom:8px">' +
+       (depthOnMap ? 'Circle colour = focal depth &middot; size = magnitude'
+                   : 'Circle colour &amp; size = magnitude') + '</div>';
 
-  s += head('Magnitude');
+  s += head(depthOnMap ? 'Magnitude (size only)' : 'Magnitude');
   magRows.forEach(function (r) {
     s += '<div style="display:flex; align-items:center; margin:5px 0">' +
          '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
@@ -619,7 +639,10 @@ function buildDecLegend(d, suffix, source, showSite) {
 
   s += head('Focal depth');
   s += '<div style="font-size:11px; color:var(--text2); margin:-2px 0 6px; font-style:italic">' +
-       'Catalog distribution (project convention, uniform across pages) — not drawn on map; shown on click.</div>';
+       (depthOnMap
+         ? 'Drawn on this map: circle colour = depth class (grey = no depth value).'
+         : 'Catalog distribution (project convention, uniform across pages) — not drawn on map; shown on click.') +
+       '</div>';
   depthRows.forEach(function (r) {
     s += '<div style="display:flex; align-items:center; margin:4px 0">' +
          '<span style="width:14px; height:14px; border-radius:2px; background:' + r.c +
@@ -1108,10 +1131,10 @@ async function runDeclustering() {
     // ── Mapbox maps ──
     if (showMaps) {
       var decSource = d.source || src;
-      var mapRow = function (mapId, fileName, suffix) {
+      var mapRow = function (mapId, fileName, suffix, depthOnMap) {
         return '<div style="display:flex; flex-direction:row; align-items:stretch;">' +
           '<div id="' + mapId + '" class="map-container" style="flex:1; min-height:500px;"></div>' +
-          buildDecLegend(d, suffix, decSource, true) +
+          buildDecLegend(d, suffix, decSource, true, depthOnMap) +
           '</div>' +
           '<button class="btn btn-secondary" style="margin-top:8px" onclick="downloadMap(\'' + mapId + '\',\'' + fileName + '\')">Download Map</button>';
       };
@@ -1120,7 +1143,9 @@ async function runDeclustering() {
         '  <div class="plot-panel"><h4>Original Catalog</h4>' + mapRow('map-original', 'map_original.png', 'original') + '</div>' +
         '  <div class="plot-panel"><h4>Declustered</h4>' + mapRow('map-declustered', 'map_declustered.png', 'declustered') + '</div>' +
         '</div>' +
-        '<div style="margin-top:16px"><h4>Within 300 km</h4>' + mapRow('map-300km', 'map_300km.png', '300km') + '</div>';
+        '<div style="margin-top:16px"><h4>Within 300 km</h4>' + mapRow('map-300km', 'map_300km.png', '300km') + '</div>' +
+        '<div style="margin-top:16px"><h4>Focal Depth (Original Catalog)</h4>' +
+        mapRow('map-focaldepth', 'map_focal_depth.png', 'focaldepth', true) + '</div>';
     } else {
       html += '<p style="color:var(--text2);margin-top:12px">Enter a Mapbox token above for interactive maps.</p>';
     }
@@ -1142,6 +1167,8 @@ async function runDeclustering() {
       buildMapboxMap('map-original', siteLat, siteLon, d.map_all, 'Original');
       buildMapboxMap('map-declustered', siteLat, siteLon, d.map_mainshocks, 'Declustered');
       buildMapboxMap('map-300km', siteLat, siteLon, d.map_300km, 'Within 300km');
+      buildMapboxMap('map-focaldepth', siteLat, siteLon, d.map_all, 'Focal Depth',
+                     { colorBy: 'depth' });
     }
 
     toast('Declustering complete');
