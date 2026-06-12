@@ -221,6 +221,64 @@ def seismic_moment_nm(mw):
     return 10.0 ** (1.5 * np.asarray(mw, dtype=float) + 9.05)
 
 
+def magnitude_distribution(mags, m_min=4.0, bin_width=1.0, m_open=7.0):
+    """Magnitude-distribution table: count and share per magnitude range.
+
+    Descriptive QA/QC summary in the project-report layout (Table 2.1,
+    "Earthquake Magnitude Distribution in the Project Area"): bins of
+    `bin_width` from `m_min` plus an open top bin at `m_open`, each with
+    its event count and percentage of the binned total. Pure counting —
+    no Reference-Folder equation is involved (same standing as the
+    DEPTH_BOUNDS_KM project convention); range labels assume the 0.1-unit
+    magnitude resolution of the catalogue ("4.0 to 4.9").
+
+    Bins are left-closed (lo <= M < hi); the top bin is M >= m_open.
+    NaN magnitudes are dropped; events below `m_min` are excluded from
+    the table and reported in `n_below`. Percentages are rounded to two
+    decimals and computed on the binned total `n_total`.
+
+    Returns (rows, n_total, n_below) — rows are (label, count, pct)
+    tuples ordered from the open top bin downward, mirroring the report.
+
+    >>> mags = [7.2]*15 + [6.3]*70 + [5.4]*604 + [4.5]*1480
+    >>> rows, n_total, n_below = magnitude_distribution(mags)
+    >>> for row in rows: print(row)
+    ('>= 7.0', 15, 0.69)
+    ('6.0 to 6.9', 70, 3.23)
+    ('5.0 to 5.9', 604, 27.85)
+    ('4.0 to 4.9', 1480, 68.23)
+    >>> n_total, n_below
+    (2169, 0)
+    >>> rows, n_total, n_below = magnitude_distribution([3.2, np.nan, 4.5])
+    >>> rows[-1], n_total, n_below
+    (('4.0 to 4.9', 1, 100.0), 1, 1)
+    >>> magnitude_distribution([])[1:]                      # empty catalogue
+    (0, 0)
+    """
+    m = np.asarray(mags, dtype=float).ravel()
+    m = m[~np.isnan(m)]
+    n_below = int((m < m_min).sum())
+    m = m[m >= m_min]
+    n_total = int(len(m))
+
+    def _pct(n):
+        return round(100.0 * n / n_total, 2) if n_total else 0.0
+
+    lows = []
+    lo = float(m_min)
+    while lo < m_open - 1e-9:
+        lows.append(lo)
+        lo += bin_width
+
+    n_top = int((m >= m_open).sum())
+    rows = [(f">= {m_open:.1f}", n_top, _pct(n_top))]
+    for lo in reversed(lows):
+        hi = min(lo + bin_width, m_open)
+        n = int(((m >= lo) & (m < hi)).sum())
+        rows.append((f"{lo:.1f} to {hi - 0.1:.1f}", n, _pct(n)))
+    return rows, n_total, n_below
+
+
 # ── 2. Duplicate removal ────────────────────────────────────────────
 
 def remove_duplicates(times_s, lats, lons, mags,

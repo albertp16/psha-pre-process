@@ -177,3 +177,29 @@ def test_homogenize_to_mw_range_gating_protects_largest_events():
 def test_seismic_moment_matches_hanks_kanamori():
     # HK Eq. 7 example: Mw 7.0 -> 3.55e26 dyne-cm = 3.55e19 N·m
     assert pl.seismic_moment_nm(7.0) == pytest.approx(3.55e19, rel=0.01)
+
+
+def test_magnitude_distribution_report_table():
+    # Project-report Table 2.1: 15 / 70 / 604 / 1480 events -> 2169 total,
+    # percentages 0.69 / 3.23 / 27.85 / 68.23 (sum 100.00).
+    mags = [7.2] * 15 + [6.3] * 70 + [5.4] * 604 + [4.5] * 1480
+    rows, n_total, n_below = pl.magnitude_distribution(mags)
+    assert (n_total, n_below) == (2169, 0)
+    assert [r[0] for r in rows] == [">= 7.0", "6.0 to 6.9",
+                                    "5.0 to 5.9", "4.0 to 4.9"]
+    assert [r[1] for r in rows] == [15, 70, 604, 1480]
+    assert [r[2] for r in rows] == [0.69, 3.23, 27.85, 68.23]
+    assert sum(r[2] for r in rows) == pytest.approx(100.0, abs=0.05)
+
+
+def test_magnitude_distribution_edges_below_min_and_nan():
+    # Left-closed bins, inclusive open top bin, NaN dropped, sub-m_min
+    # events excluded from the table but counted in n_below.
+    rows, n_total, n_below = pl.magnitude_distribution(
+        [3.9, 4.0, 4.95, 5.0, 6.999, 7.0, np.nan])
+    assert (n_total, n_below) == (5, 1)
+    by = {label: n for label, n, _ in rows}
+    assert by["4.0 to 4.9"] == 2          # 4.0 inclusive; 4.95 < 5.0
+    assert by["5.0 to 5.9"] == 1
+    assert by["6.0 to 6.9"] == 1          # 6.999 stays below the top bin
+    assert by[">= 7.0"] == 1              # 7.0 lands in the open bin

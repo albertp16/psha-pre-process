@@ -688,6 +688,29 @@ async function loadCatalogPage() {
     html += '</div>';
     document.getElementById('cat-summary').innerHTML = html;
 
+    // Magnitude-distribution table (project-report Table 2.1 layout)
+    var md = d.mag_distribution;
+    if (md && md.rows && md.rows.length) {
+      var pctSum = md.rows.reduce(function (s, r) { return s + r.pct; }, 0);
+      var t = '<div class="result-card"><h3>Earthquake Magnitude Distribution</h3>';
+      t += '<div class="tbl-scroll" style="max-width:620px"><table><thead><tr>' +
+           '<th>Magnitude Range</th><th>Number of Earthquakes</th>' +
+           '<th>Percentage (%)</th></tr></thead><tbody>';
+      md.rows.forEach(function (r) {
+        t += '<tr><td>' + escapeHtml(r.range).replace('&gt;=', '&ge;') + '</td>' +
+             '<td>' + r.count + '</td><td>' + r.pct.toFixed(2) + '</td></tr>';
+      });
+      t += '<tr style="font-weight:700"><td>TOTAL</td><td>' + md.total + '</td>' +
+           '<td>' + pctSum.toFixed(2) + '</td></tr>';
+      t += '</tbody></table></div>';
+      t += '<p style="color:var(--text2);font-size:13px;margin-top:8px">Counts over the full ' +
+           'bundled catalogue (M &ge; ' + md.m_min.toFixed(1) + ' shown' +
+           (md.below_min ? '; ' + md.below_min + ' event(s) below M ' + md.m_min.toFixed(1) +
+            ' appear on the map but not in the table' : '') + ').</p>';
+      t += '</div>';
+      document.getElementById('cat-magdist').innerHTML = t;
+    }
+
     // Notes + QA flags
     var notes = '<div class="result-card"><h3>Source notes &amp; QA flags</h3><ul style="margin-left:18px">';
     (d.notes || []).forEach(function (n) { notes += '<li style="margin:6px 0">' + escapeHtml(n) + '</li>'; });

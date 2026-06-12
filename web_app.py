@@ -428,12 +428,14 @@ def api_catalog_info():
     events = payload["events"]
 
     mags = np.array([ev["mag"] for ev in events if ev["mag"] is not None], dtype=float)
-    mag_bins = {
-        "lt4": int((mags < 4.0).sum()),
-        "m4": int(((mags >= 4.0) & (mags < 5.0)).sum()),
-        "m5": int(((mags >= 5.0) & (mags < 6.0)).sum()),
-        "m6": int(((mags >= 6.0) & (mags < 7.0)).sum()),
-        "ge7": int((mags >= 7.0).sum()),
+    dist_rows, dist_total, n_below_min = pl.magnitude_distribution(mags)
+    dist_counts = {label: n for label, n, _ in dist_rows}
+    mag_bins = {   # map-legend keys, fed from the same pipeline table
+        "lt4": n_below_min,
+        "m4": dist_counts["4.0 to 4.9"],
+        "m5": dist_counts["5.0 to 5.9"],
+        "m6": dist_counts["6.0 to 6.9"],
+        "ge7": dist_counts[">= 7.0"],
     }
     depth_classes = depth_class_counts([ev["depth_km"] for ev in events])
 
@@ -465,6 +467,13 @@ def api_catalog_info():
         magnitude_preference=meta["magnitude_preference"],
         notes=meta["notes"],
         mag_bins=mag_bins,
+        mag_distribution={
+            "rows": [{"range": l, "count": n, "pct": p}
+                     for l, n, p in dist_rows],
+            "total": dist_total,
+            "below_min": n_below_min,
+            "m_min": 4.0,
+        },
         depth_classes=depth_classes,
         depth_class_labels=DEPTH_CLASS_LABELS,
         depth_convention_note=DEPTH_CONVENTION_NOTE,

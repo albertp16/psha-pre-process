@@ -188,3 +188,19 @@ def test_max_magnitude_errors_are_400(client):
     r = client.post("/api/max_magnitude", data={})
     assert r.status_code == 400              # error contract (B3)
     assert "error" in r.get_json()
+
+
+def test_catalog_info_magnitude_distribution(client):
+    # Table 2.1-style distribution: pipeline-computed, consistent with the
+    # legend bins (both come from pl.magnitude_distribution).
+    d = client.get("/api/catalog_info").get_json()
+    md = d["mag_distribution"]
+    rows = md["rows"]
+    assert [r["range"] for r in rows] == [">= 7.0", "6.0 to 6.9",
+                                          "5.0 to 5.9", "4.0 to 4.9"]
+    assert sum(r["count"] for r in rows) == md["total"]
+    assert sum(r["pct"] for r in rows) == pytest.approx(100.0, abs=0.05)
+    mb = d["mag_bins"]
+    assert mb["ge7"] == rows[0]["count"]
+    assert mb["m4"] == rows[3]["count"]
+    assert mb["lt4"] == md["below_min"]
