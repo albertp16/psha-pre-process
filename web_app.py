@@ -742,6 +742,64 @@ def _plot_mag_time_scatter(cat, is_main, label):
     return fig
 
 
+def _plot_focal_depth(cat, is_main, label):
+    """Focal-depth histograms: after steps 1–2 vs declustered mainshocks.
+
+    Depth classes follow DEPTH_BOUNDS_KM (project convention, same 35/70 km
+    boundaries as the map legends and the catalog API); the dashed lines mark
+    them and each zone is captioned with its before→after event count.
+    Events without a depth value are omitted (count noted in the title).
+    """
+    depths = cat["_depth"].values
+    have = ~np.isnan(depths)
+    d_all = depths[have]
+    d_main = depths[np.asarray(is_main) & have]
+    n_nodepth = int((~have).sum())
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    title = f"Focal Depth Distribution – {label}"
+    if n_nodepth:
+        title += f" ({n_nodepth} event(s) without depth omitted)"
+    ax.set_title(title)
+    if len(d_all) == 0:
+        ax.text(0.5, 0.5, "No focal-depth data in the catalogue",
+                ha="center", va="center", transform=ax.transAxes,
+                color="#6b7280")
+        return fig
+
+    s0, s1, s2 = DEPTH_BOUNDS_KM
+    upper = min(s2, max(float(np.ceil(d_all.max() / 25.0)) * 25.0 + 25.0, 100.0))
+    bins = np.arange(0.0, upper + 25.0, 25.0)
+    ax.hist(d_all, bins=bins, color="#9ca3af", alpha=0.6,
+            label=f"After steps 1–2 (n={len(d_all)})")
+    ax.hist(d_main, bins=bins, color="#3b82f6", alpha=0.75,
+            label=f"Declustered – {label} (n={len(d_main)})")
+    for x in (s0, s1):
+        if x < upper:
+            ax.axvline(x, color="k", linestyle="--", linewidth=1, alpha=0.6)
+
+    def _cls(d):
+        return (int((d < s0).sum()),
+                int(((d >= s0) & (d < s1)).sum()),
+                int((d >= s1).sum()))
+
+    before, after = _cls(d_all), _cls(d_main)
+    ax.text(0.5, 0.975,
+            "before→after by class:   "
+            f"Shallow {before[0]}→{after[0]}   ·   "
+            f"Mid-depth {before[1]}→{after[1]}   ·   "
+            f"Deep {before[2]}→{after[2]}",
+            ha="center", va="top", fontsize=9.5, color="#374151",
+            transform=ax.transAxes)
+    ax.set_xlim(0, upper)
+    ax.set_xlabel("Focal depth (km)")
+    ax.set_ylabel("Event count")
+    ax.legend(loc="center right")
+    ax.grid(True, linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    return fig
+
+
 @app.route("/api/declustering", methods=["POST"])
 def api_declustering():
     lat_col = request.form.get("lat_col", "latitude")
@@ -820,6 +878,7 @@ def api_declustering():
     # ── Per-method decluster maps + mag-time scatter ──
     method_plots = {}
     method_magtime = {}
+    method_depth = {}
     method_stats = {}
     method_csvs = {}
     for m in methods:
@@ -834,6 +893,9 @@ def api_declustering():
 
         fig_mt = _plot_mag_time_scatter(cat, is_main, method_labels[m])
         method_magtime[m] = fig_to_b64(fig_mt)
+
+        fig_fd = _plot_focal_depth(cat, is_main, method_labels[m])
+        method_depth[m] = fig_to_b64(fig_fd)
 
         out_cols = [c for c in df.columns if c in cat.columns]
         out_cols += [c for c in ("mag_mw", "mag_mw_src") if c in cat.columns]
@@ -894,6 +956,7 @@ def api_declustering():
         plot_time=fig_to_b64(fig_time),
         method_plots=method_plots,
         method_magtime=method_magtime,
+        method_depth=method_depth,
         method_stats=method_stats,
         method_csvs=method_csvs,
         methods_used=methods,

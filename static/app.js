@@ -1083,6 +1083,25 @@ async function runDeclustering() {
       html += plotHTML(d.method_magtime[m1], 'magtime_' + m1 + '.png');
     }
 
+    if (d.method_depth) {
+      html += '<h2>Focal Depth: Before vs After Declustering</h2>';
+      html += '<p style="color:var(--text2);font-size:13px">Depth classes (project ' +
+        'convention, dashed lines): shallow 0&ndash;35 km, mid-depth 35&ndash;70 km, ' +
+        'deep 70&ndash;700 km. Zone captions give before&rarr;after event counts.</p>';
+      if (d.methods_used.length > 1) {
+        html += '<div class="plot-compare">';
+        d.methods_used.forEach(function(m) {
+          html += '<div class="plot-panel"><h4>' + methodNames[m] + '</h4>';
+          html += plotHTML(d.method_depth[m], 'focal_depth_' + m + '.png');
+          html += '</div>';
+        });
+        html += '</div>';
+      } else {
+        var mfd = d.methods_used[0];
+        html += plotHTML(d.method_depth[mfd], 'focal_depth_' + mfd + '.png');
+      }
+    }
+
     html += '<h2>Magnitude-Time Overlay (All Methods)</h2>';
     html += plotHTML(d.plot_time, 'mag_time_comparison.png');
 

@@ -44,6 +44,10 @@ def test_declustering_runs_pipeline_steps(client):
     assert any("Step 2 duplicates" in n for n in d["pipeline_notes"])
     s = d["method_stats"]["gk"]
     assert s["mainshocks"] + s["aftershocks"] == d["n_total"]
+    # one plot per method: map, magnitude-time, focal depth
+    for key in ("method_plots", "method_magtime", "method_depth"):
+        assert set(d[key]) == {"gk"}
+        assert d[key]["gk"].startswith("iVBOR") or len(d[key]["gk"]) > 1000
 
 
 def test_declustering_dedup_can_be_disabled(client):
