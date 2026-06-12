@@ -71,8 +71,9 @@ MB_RELATIONS = {
 }
 ML_RELATIONS = {
     # Kadirioglu & Kartal (2016), `Kadirioglu and Kartal.pdf`, Eq. (3c),
-    # p. 306 (PDF 8): Mw = 0.8095 ML + 1.3003, 3.3 <= ML <= 6.6 (OLS,
-    # R^2 = 0.6244, 404 ML-Mw pairs vs Harvard GCMT, p. 308). Regional
+    # p. 306 (PDF 8): Mw = 0.8095 ML + 1.3003, 3.3 <= ML <= 6.6 (OLS;
+    # R^2 = 0.6244, Fig. 8 p. 307; 404 ML-Mw pairs vs Harvard GCMT,
+    # pp. 303, 308). Regional
     # caveat: regressed on the TURKEY catalogue (32-45N, 23-48E, 1900-2012,
     # p. 301) — applying it to PHIVOLCS ML values is an analyst decision.
     "kadirioglu2016": (0.8095, 1.3003, 3.3, 6.6, None),  # KK16 Eq. 3c, p. 306

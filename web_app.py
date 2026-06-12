@@ -161,7 +161,8 @@ def _has_datetime_time(cat) -> bool:
 def _mw_breakdown(srcs):
     """Human-readable per-source counts from homogenize_to_mw labels."""
     order = (("mw", "reported Mw"), ("ms2mw", "Ms→Mw"), ("mb2mw", "mb→Mw"),
-             ("user_coeffs", "user-coefficient"), ("raw", "kept as reported"))
+             ("ml2mw", "Ml→Mw"), ("user_coeffs", "user-coefficient"),
+             ("raw", "kept as reported"))
     return ", ".join(f"{srcs[k]} {lbl}" for k, lbl in order if srcs.get(k))
 
 
