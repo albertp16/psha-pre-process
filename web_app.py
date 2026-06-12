@@ -125,14 +125,19 @@ DEPTH_CONVENTION_NOTE = (
 
 
 def depth_class_counts(depths) -> dict:
-    """Event counts per unified depth class; 'unknown' = missing/out of range."""
+    """Event counts per unified depth class.
+
+    'unknown' = missing or outside 0–700 km. The deep class is inclusive at
+    the 700 km bound — the catalogue's deepest event (PH-0213, 700.0 km) is
+    a real measurement, not a missing value.
+    """
     d = pd.to_numeric(pd.Series(depths), errors="coerce")
     s0, s1, s2 = DEPTH_BOUNDS_KM
     return {
         "shallow": int(((d >= 0) & (d < s0)).sum()),
         "intermediate": int(((d >= s0) & (d < s1)).sum()),
-        "deep": int(((d >= s1) & (d < s2)).sum()),
-        "unknown": int(len(d) - ((d >= 0) & (d < s2)).sum()),
+        "deep": int(((d >= s1) & (d <= s2)).sum()),
+        "unknown": int(len(d) - ((d >= 0) & (d <= s2)).sum()),
     }
 
 
@@ -914,11 +919,19 @@ def api_declustering():
 
     # ── Map data for Mapbox ──
     map_cols = {"_lat": "lat", "_lon": "lon", "_mag": "mag", "_depth": "depth"}
-    map_all = cat[list(map_cols.keys())].fillna(0).rename(columns=map_cols).to_dict("records")
-    map_mainshocks = cat[results[primary]][list(map_cols.keys())].fillna(0).rename(
-        columns=map_cols).to_dict("records")
-    map_300km = within_300_main[list(map_cols.keys())].fillna(0).rename(
-        columns=map_cols).to_dict("records")
+
+    def _map_records(frame):
+        # lat/lon/mag are dropna-guaranteed; a missing depth stays null in
+        # the JSON so the depth-coloured map can grey it (not paint it 0 km).
+        recs = frame[list(map_cols.keys())].rename(columns=map_cols).to_dict("records")
+        for r in recs:
+            if pd.isna(r["depth"]):
+                r["depth"] = None
+        return recs
+
+    map_all = _map_records(cat)
+    map_mainshocks = _map_records(cat[results[primary]])
+    map_300km = _map_records(within_300_main)
 
     # ── Table data ──
     table_display_cols = [c for c in [lat_col, lon_col, mag_col, depth_col, time_col]

@@ -32,6 +32,9 @@ def test_catalog_info_unified_depth_classes(client):
     assert "depth_class_labels" in d
     # one unified taxonomy: counts must sum to the catalogue size
     assert sum(d["depth_classes"].values()) == d["total_events"]
+    # deep is inclusive at 700 km: the 700.0 km event (PH-0213) is a real
+    # measurement and must not be classed "unknown"
+    assert d["depth_classes"]["unknown"] == 0
 
 
 def test_declustering_runs_pipeline_steps(client):

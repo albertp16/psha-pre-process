@@ -507,7 +507,8 @@ function initMap(containerId, token, siteLat, siteLon, events, title, opts) {
       var inside = props.inside300 === true || props.inside300 === 'true';
       var depth = Number(props.depth);
       var depthTxt = depth < 0 ? 'n/a' : depth.toFixed(1) + ' km (' +
-        (depth < 35 ? 'shallow' : depth < 70 ? 'mid-depth' : 'deep') + ')';
+        (depth < 35 ? 'shallow' : depth < 70 ? 'mid-depth' :
+         depth <= 700 ? 'deep' : 'outside 0–700 km classes') + ')';
       return '<strong>M ' + Number(props.mag).toFixed(1) + '</strong><br>Depth: ' +
              depthTxt + '<br>Site distance: ' +
              Number(props.dist_km).toFixed(0) + ' km' +
@@ -522,9 +523,11 @@ var EQ_MAG_COLOR = ['interpolate', ['linear'], ['get', 'mag'],
                     4, '#fef08a', 5, '#fb923c', 6, '#ef4444', 7, '#b91c1c', 8, '#7f1d1d'];
 
 // Focal-depth class colours: same 35/70 km boundaries and swatches as the
-// legend (DEPTH_BOUNDS_KM project convention); the -1 no-depth sentinel
-// renders grey.
-var EQ_DEPTH_COLOR = ['case', ['<', ['get', 'depth'], 0], '#9ca3af',
+// legend (DEPTH_BOUNDS_KM project convention, deep inclusive at 700 km);
+// the -1 no-depth sentinel and out-of-range depths render grey.
+var EQ_DEPTH_COLOR = ['case',
+                      ['any', ['<', ['get', 'depth'], 0],
+                              ['>', ['get', 'depth'], 700]], '#9ca3af',
                       ['step', ['get', 'depth'],
                        '#93c5fd', 35, '#3b82f6', 70, '#1e3a8a']];
 
@@ -650,7 +653,8 @@ function buildDecLegend(d, suffix, source, showSite, depthOnMap) {
          '<span>' + escapeHtml(r.label) + nTxt(r.n) + '</span></div>';
   });
   if (dc.unknown) {
-    s += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown + ' event(s) without depth.</div>';
+    s += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown +
+         ' event(s) without usable depth (missing or outside 0&ndash;700 km).</div>';
   }
 
   s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border); color:var(--text); font-size:12px">';
@@ -1131,21 +1135,62 @@ async function runDeclustering() {
     // ── Mapbox maps ──
     if (showMaps) {
       var decSource = d.source || src;
-      var mapRow = function (mapId, fileName, suffix, depthOnMap) {
+      // Per-map legend stats: each legend's n= counts describe the events
+      // actually drawn on that map, not the whole input catalogue.
+      var mapMagBins = function (evs) {
+        var b = { lt4: 0, m4: 0, m5: 0, m6: 0, ge7: 0 };
+        evs.forEach(function (e) {
+          if (e.mag < 4) b.lt4++;
+          else if (e.mag < 5) b.m4++;
+          else if (e.mag < 6) b.m5++;
+          else if (e.mag < 7) b.m6++;
+          else b.ge7++;
+        });
+        return b;
+      };
+      var mapDepthClasses = function (evs) {
+        // Mirrors depth_class_counts: unknown = missing or outside 0-700 km,
+        // deep inclusive at the 700 km bound.
+        var c = { shallow: 0, intermediate: 0, deep: 0, unknown: 0 };
+        evs.forEach(function (e) {
+          if (e.depth == null || e.depth < 0 || e.depth > 700) c.unknown++;
+          else if (e.depth < 35) c.shallow++;
+          else if (e.depth < 70) c.intermediate++;
+          else c.deep++;
+        });
+        return c;
+      };
+      var legendFor = function (evs) {
+        evs = evs || [];
+        return Object.assign({}, d, {
+          mag_bins: mapMagBins(evs),
+          depth_classes: mapDepthClasses(evs),
+          n_total: evs.length
+        });
+      };
+      var primaryName = methodNames[d.methods_used[0]];
+      var mapRow = function (mapId, fileName, suffix, depthOnMap, evs) {
         return '<div style="display:flex; flex-direction:row; align-items:stretch;">' +
           '<div id="' + mapId + '" class="map-container" style="flex:1; min-height:500px;"></div>' +
-          buildDecLegend(d, suffix, decSource, true, depthOnMap) +
+          buildDecLegend(legendFor(evs), suffix, decSource, true, depthOnMap) +
           '</div>' +
           '<button class="btn btn-secondary" style="margin-top:8px" onclick="downloadMap(\'' + mapId + '\',\'' + fileName + '\')">Download Map</button>';
       };
       html += '<h2>Interactive Maps (Mapbox)</h2>' +
         '<div class="plot-compare">' +
-        '  <div class="plot-panel"><h4>Original Catalog</h4>' + mapRow('map-original', 'map_original.png', 'original') + '</div>' +
-        '  <div class="plot-panel"><h4>Declustered</h4>' + mapRow('map-declustered', 'map_declustered.png', 'declustered') + '</div>' +
+        '  <div class="plot-panel"><h4>Original Catalog</h4>' +
+        mapRow('map-original', 'map_original.png', 'original', false, d.map_all) + '</div>' +
+        '  <div class="plot-panel"><h4>Declustered &ndash; ' + primaryName + '</h4>' +
+        mapRow('map-declustered', 'map_declustered.png', 'declustered', false, d.map_mainshocks) + '</div>' +
         '</div>' +
-        '<div style="margin-top:16px"><h4>Within 300 km</h4>' + mapRow('map-300km', 'map_300km.png', '300km') + '</div>' +
-        '<div style="margin-top:16px"><h4>Focal Depth (Original Catalog)</h4>' +
-        mapRow('map-focaldepth', 'map_focal_depth.png', 'focaldepth', true) + '</div>';
+        '<div style="margin-top:16px"><h4>Within 300 km &ndash; ' + primaryName + ' mainshocks</h4>' +
+        mapRow('map-300km', 'map_300km.png', '300km', false, d.map_300km) + '</div>' +
+        '<div class="plot-compare" style="margin-top:16px">' +
+        '  <div class="plot-panel"><h4>Focal Depth &ndash; Original Catalog</h4>' +
+        mapRow('map-focaldepth', 'map_focal_depth.png', 'focaldepth', true, d.map_all) + '</div>' +
+        '  <div class="plot-panel"><h4>Focal Depth &ndash; Declustered (' + primaryName + ')</h4>' +
+        mapRow('map-focaldepth-dec', 'map_focal_depth_declustered.png', 'focaldepthdec', true, d.map_mainshocks) + '</div>' +
+        '</div>';
     } else {
       html += '<p style="color:var(--text2);margin-top:12px">Enter a Mapbox token above for interactive maps.</p>';
     }
@@ -1169,6 +1214,8 @@ async function runDeclustering() {
       buildMapboxMap('map-300km', siteLat, siteLon, d.map_300km, 'Within 300km');
       buildMapboxMap('map-focaldepth', siteLat, siteLon, d.map_all, 'Focal Depth',
                      { colorBy: 'depth' });
+      buildMapboxMap('map-focaldepth-dec', siteLat, siteLon, d.map_mainshocks,
+                     'Focal Depth (Declustered)', { colorBy: 'depth' });
     }
 
     toast('Declustering complete');
