@@ -15,9 +15,11 @@ Analysis modules ported from the in-house `seismicprocesspy` toolkit.
 
 ## What it does
 
-A Flask web app that takes the raw PHIVOLCS workbook (1907–2025, **3,577 events**, M ≥ ~5)
-through the standard PSHA source-characterisation chain. The converted catalogue is bundled
-and preloaded — every page runs out of the box, or accepts an uploaded CSV instead.
+A Flask web app that takes the raw PHIVOLCS workbook (1907–2025, **3,576 events**, M ≥ 5
+— the workbook's stated floor; its single M 4.8 entry is excluded but kept capture-audited
+in `metadata.excluded_events`) through the standard PSHA source-characterisation chain.
+The converted catalogue is bundled and preloaded — every page runs out of the box, or
+accepts an uploaded CSV instead.
 
 | Step | Page | Method | Key outputs |
 |---|---|---|---|

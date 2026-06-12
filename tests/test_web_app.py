@@ -191,16 +191,28 @@ def test_max_magnitude_errors_are_400(client):
 
 
 def test_catalog_info_magnitude_distribution(client):
-    # Table 2.1-style distribution: pipeline-computed, consistent with the
-    # legend bins (both come from pl.magnitude_distribution).
+    # Table 2.1-style distribution with an open >= 8.0 top bin:
+    # pipeline-computed, consistent with the legend bins (both come from
+    # pl.magnitude_distribution).
     d = client.get("/api/catalog_info").get_json()
     md = d["mag_distribution"]
     rows = md["rows"]
-    assert [r["range"] for r in rows] == [">= 7.0", "6.0 to 6.9",
+    assert [r["range"] for r in rows] == [">= 8.0", "7.0 to 7.9", "6.0 to 6.9",
                                           "5.0 to 5.9", "4.0 to 4.9"]
     assert sum(r["count"] for r in rows) == md["total"]
     assert sum(r["pct"] for r in rows) == pytest.approx(100.0, abs=0.05)
     mb = d["mag_bins"]
-    assert mb["ge7"] == rows[0]["count"]
-    assert mb["m4"] == rows[3]["count"]
+    assert mb["ge7"] == rows[0]["count"] + rows[1]["count"]
+    assert mb["m4"] == rows[4]["count"]
     assert mb["lt4"] == md["below_min"]
+
+
+def test_catalog_database_floor_m5(client):
+    # The converter's MIN_MAGNITUDE floor: no event below M 5.0 remains in
+    # the bundled database (the single Mw 4.8 of 2025-06-27 is excluded and
+    # capture-audited in metadata.excluded_events).
+    d = client.get("/api/catalog_info").get_json()
+    rows = {r["range"]: r["count"] for r in d["mag_distribution"]["rows"]}
+    assert rows["4.0 to 4.9"] == 0
+    assert d["mag_distribution"]["below_min"] == 0
+    assert d["mag_bins"]["lt4"] == 0 and d["mag_bins"]["m4"] == 0

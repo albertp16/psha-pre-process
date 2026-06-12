@@ -43,6 +43,12 @@ CANONICAL_HEADERS = {
 # Preferred magnitude per event: first available wins.
 MAG_PRECEDENCE = [("mw", "Mw"), ("ms", "Ms"), ("mb", "Mb"), ("ml", "Ml")]
 
+# Analysis floor. The workbook preamble states "Magnitude: 5.0 and above";
+# events whose PREFERRED magnitude falls below this are excluded from
+# `events` and the GeoJSON but kept verbatim in metadata.excluded_events so
+# the capture audit still reconciles every workbook cell (nothing dropped).
+MIN_MAGNITUDE = 5.0
+
 INT_FIELDS = ("year", "month", "day", "hour", "minute")
 COORD_FIELDS = ("latitude", "longitude", "depth_km")
 
@@ -70,6 +76,10 @@ NOTES = [
     "from 1907.",
     "Preamble states 'Magnitude: 5.0 and above'; some events carry individual magnitude "
     "types below 5.0 (e.g. Ml down to 3.0) alongside a larger magnitude of another type.",
+    "Events whose PREFERRED magnitude is below 5.0 are excluded from `events` and the "
+    "GeoJSON per that preamble floor; they are kept verbatim in metadata.excluded_events "
+    "(count in metadata.n_excluded_below_min_mag) and remain capture-audited. Event ids "
+    "keep their sequential slot, so an excluded event leaves a documented id gap.",
     "Origin times are GMT per the column header.",
 ]
 
@@ -278,6 +288,13 @@ def main():
     for ev in all_events:
         ev["id"] = f"PH-{ev['id']:04d}"
 
+    # Apply the MIN_MAGNITUDE analysis floor after id assignment so the
+    # surviving events keep their ids (the gap documents the exclusion).
+    excluded_events = [ev for ev in all_events
+                       if ev["mag"] is not None and ev["mag"] < MIN_MAGNITUDE]
+    excluded_ids = {ev["id"] for ev in excluded_events}
+    all_events = [ev for ev in all_events if ev["id"] not in excluded_ids]
+
     flag_counts = {}
     for ev in all_events:
         for fl in ev["qa_flags"]:
@@ -296,6 +313,9 @@ def main():
         "time_basis": "GMT (per workbook header)",
         "magnitude_preference": [label for _, label in MAG_PRECEDENCE],
         "total_events": len(all_events),
+        "min_magnitude": MIN_MAGNITUDE,
+        "n_excluded_below_min_mag": len(excluded_events),
+        "excluded_events": excluded_events,
         "mag_type_counts": mag_type_counts,
         "qa_flag_counts": flag_counts,
         "year_min": min(ev["year"] for ev in all_events if ev["year"] is not None),
@@ -318,7 +338,8 @@ def main():
         print(f"  sheet '{m['name']}': {m['n_events']} events "
               f"(rows {m['data_start_row']}-{m['data_end_row']}, header row {m['header_row']}), "
               f"{len(m['skipped_rows'])} skipped, {len(m['stray_cells'])} stray cells")
-    print(f"total events: {len(all_events)}")
+    print(f"total events: {len(all_events)} "
+          f"(excluded below M{MIN_MAGNITUDE:.1f}: {len(excluded_events)})")
     print(f"mag_type counts: {mag_type_counts}")
     print(f"qa flags: {flag_counts}")
     print(f"wrote {catalog_path} ({catalog_path.stat().st_size:,} bytes)")

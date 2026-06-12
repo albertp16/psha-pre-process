@@ -428,14 +428,14 @@ def api_catalog_info():
     events = payload["events"]
 
     mags = np.array([ev["mag"] for ev in events if ev["mag"] is not None], dtype=float)
-    dist_rows, dist_total, n_below_min = pl.magnitude_distribution(mags)
+    dist_rows, dist_total, n_below_min = pl.magnitude_distribution(mags, m_open=8.0)
     dist_counts = {label: n for label, n, _ in dist_rows}
     mag_bins = {   # map-legend keys, fed from the same pipeline table
         "lt4": n_below_min,
         "m4": dist_counts["4.0 to 4.9"],
         "m5": dist_counts["5.0 to 5.9"],
         "m6": dist_counts["6.0 to 6.9"],
-        "ge7": dist_counts[">= 7.0"],
+        "ge7": dist_counts["7.0 to 7.9"] + dist_counts[">= 8.0"],
     }
     depth_classes = depth_class_counts([ev["depth_km"] for ev in events])
 

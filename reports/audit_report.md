@@ -3,11 +3,11 @@
 **Status: PASS**
 
 - Source: `Earthquake Catalogue of the Philippines.xlsx` (sha256 `e2a22971d6f98dfa...`)
-- Generated: 2026-06-10T15:27:37.288549+00:00
+- Generated: 2026-06-12T08:52:32.967366+00:00
 
 ## Counts
-- Events in catalog.json: **3577**
-- Features in catalog.geojson: **3577**
+- Events in catalog.json: **3576**
+- Features in catalog.geojson: **3576**
 - Data rows found in xlsx: **3577**
 - Per sheet: `1907-2018` = 3032, `2019-2025` = 545
 - Non-empty cells seen in workbook: 38754 (widest row scanned: 1011 columns)
@@ -19,15 +19,15 @@ Every non-empty workbook cell was matched to exactly one of: preamble metadata, 
 ## Anomaly ledger (asserted against known source)
 - QA flags: {"mb_coerced_from_string": 1855, "ml_coerced_from_string": 1250, "invalid_datetime": 1}
 - Invalid datetimes: [['2019-2025', 329]] (Hour=27 kept raw, datetime null)
-- Preferred magnitude distribution: {"Ms": 1686, "Mb": 1035, "Ml": 446, "Mw": 410}
-- Events with preferred mag < 5.0: 1
+- Preferred magnitude distribution: {"Ms": 1686, "Mb": 1035, "Ml": 446, "Mw": 409}
+- Events with preferred mag < 5.0: 0
 - Exact duplicate time+location pairs: 24
 
 ## Ranges
 - Latitude: 2.0 to 22.0 degN
 - Longitude: 116.3 to 133.0 degE
 - Depth: 1.0 to 700.0 km
-- Preferred magnitude: 4.8 to 8.3
+- Preferred magnitude: 5.0 to 8.3
 - Years: 1907 to 2025
 
 ## Spot checks (first, last, 5 seeded-random)
@@ -45,4 +45,4 @@ Every non-empty workbook cell was matched to exactly one of: preamble metadata, 
 ## Notes
 - 1907-2018: 3032 data rows, all reconciled against events
 - 2019-2025: 545 data rows, all reconciled against events
-- events with preferred mag < 5.0: 1 (workbook preamble nominally M>=5.0)
+- events excluded below the M>=5.0 preamble floor: 1 (kept in metadata.excluded_events, capture-audited)

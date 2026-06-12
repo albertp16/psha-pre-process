@@ -254,6 +254,11 @@ def magnitude_distribution(mags, m_min=4.0, bin_width=1.0, m_open=7.0):
     (('4.0 to 4.9', 1, 100.0), 1, 1)
     >>> magnitude_distribution([])[1:]                      # empty catalogue
     (0, 0)
+    >>> rows, _, _ = magnitude_distribution([8.3, 7.5, 5.1], m_open=8.0)
+    >>> [r[0] for r in rows]                                # >= 8.0 top bin
+    ['>= 8.0', '7.0 to 7.9', '6.0 to 6.9', '5.0 to 5.9', '4.0 to 4.9']
+    >>> [r[1] for r in rows]
+    [1, 1, 0, 1, 0]
     """
     m = np.asarray(mags, dtype=float).ravel()
     m = m[~np.isnan(m)]

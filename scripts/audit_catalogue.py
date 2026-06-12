@@ -44,7 +44,7 @@ INT_FIELDS = ("year", "month", "day", "hour", "minute")
 KNOWN_SHA = "e2a22971d6f98dfac02b6d081099f7e365b40dc9ca2e5555d3d58f893ba610a3"
 EXPECTED_LEDGERS = {
     KNOWN_SHA: {
-        "total_events": 3577,
+        "total_events": 3576,
         "per_sheet": {"1907-2018": 3032, "2019-2025": 545},
         "qa_flag_counts": {
             "ml_coerced_from_string": 1250,
@@ -52,8 +52,12 @@ EXPECTED_LEDGERS = {
             "invalid_datetime": 1,
         },
         "invalid_datetime_rows": [["2019-2025", 329]],
-        "mag_type_counts": {"Ms": 1686, "Mb": 1035, "Ml": 446, "Mw": 410},
+        "mag_type_counts": {"Ms": 1686, "Mb": 1035, "Ml": 446, "Mw": 409},
         "n_duplicate_pairs": 24,
+        # MIN_MAGNITUDE floor (converter): the single Mw 4.8 event of
+        # 2025-06-27 (sheet '2019-2025' row 528) sits below the workbook
+        # preamble's "Magnitude: 5.0 and above" and is excluded from events.
+        "n_excluded_below_min_mag": 1,
     }
 }
 
@@ -128,6 +132,15 @@ def main():
     if len(ev_by_sheet_row) != len(events):
         fail("duplicate (source_sheet, source_row) keys among events")
 
+    # Events excluded by the converter's MIN_MAGNITUDE floor: not in events/
+    # geojson, but still capture-audited cell-by-cell like any data row.
+    excluded = meta.get("excluded_events", [])
+    excl_by_sheet_row = {(ev["source_sheet"], ev["source_row"]): ev for ev in excluded}
+    for ev in excluded:
+        if ev["mag"] is None or ev["mag"] >= meta.get("min_magnitude", 5.0):
+            fail(f"{ev['id']}: in excluded_events but mag={ev['mag']!r} is not "
+                 f"below min_magnitude={meta.get('min_magnitude')!r}")
+
     sheet_meta = {m["name"]: m for m in meta["sheets"]}
     wb = openpyxl.load_workbook(XLSX, read_only=True)
 
@@ -181,7 +194,10 @@ def main():
                 n_sheet_data_rows += 1
                 ev = ev_by_sheet_row.get((sheet, row_no))
                 if ev is None:
-                    fail(f"{sheet} row {row_no}: data row has NO corresponding event in catalog.json")
+                    ev = excl_by_sheet_row.get((sheet, row_no))
+                if ev is None:
+                    fail(f"{sheet} row {row_no}: data row has NO corresponding event "
+                         f"in catalog.json (events or excluded_events)")
                     continue
                 # Reconcile every mapped column (including empty->null)
                 for idx, field in colmap.items():
@@ -231,9 +247,11 @@ def main():
         n_data_rows_total += n_sheet_data_rows
         if n_sheet_data_rows != sm["n_events"]:
             fail(f"{sheet}: xlsx data rows={n_sheet_data_rows} but metadata says n_events={sm['n_events']}")
-        ev_in_sheet = sum(1 for ev in events if ev["source_sheet"] == sheet)
+        ev_in_sheet = (sum(1 for ev in events if ev["source_sheet"] == sheet)
+                       + sum(1 for ev in excluded if ev["source_sheet"] == sheet))
         if n_sheet_data_rows != ev_in_sheet:
-            fail(f"{sheet}: xlsx data rows={n_sheet_data_rows} but events in catalog={ev_in_sheet}")
+            fail(f"{sheet}: xlsx data rows={n_sheet_data_rows} but events+excluded "
+                 f"in catalog={ev_in_sheet}")
         info.append(f"{sheet}: {n_sheet_data_rows} data rows, all reconciled against events")
 
     wb.close()
@@ -244,10 +262,14 @@ def main():
         fail(f"{len(claimed_missing)} metadata cells not present in workbook; first: {claimed_missing[:10]}")
     if recon_mismatches:
         fail(f"{len(recon_mismatches)} cell/field mismatches; first: {recon_mismatches[:10]}")
-    if n_data_rows_total != len(events):
-        fail(f"total xlsx data rows={n_data_rows_total} != events={len(events)}")
+    if n_data_rows_total != len(events) + len(excluded):
+        fail(f"total xlsx data rows={n_data_rows_total} != "
+             f"events+excluded={len(events) + len(excluded)}")
     if meta["total_events"] != len(events):
         fail(f"metadata.total_events={meta['total_events']} != len(events)={len(events)}")
+    if meta.get("n_excluded_below_min_mag", 0) != len(excluded):
+        fail(f"metadata.n_excluded_below_min_mag={meta.get('n_excluded_below_min_mag')!r} "
+             f"!= len(excluded_events)={len(excluded)}")
 
     # ── 4. GeoJSON cross-check ──
     feats = geo["features"]
@@ -304,7 +326,11 @@ def main():
         warn(f"{len(dups)} exact duplicate origin-time+location pairs: {dups[:5]}")
 
     sub_m5 = sum(1 for ev in events if ev["mag"] is not None and ev["mag"] < 5.0)
-    info.append(f"events with preferred mag < 5.0: {sub_m5} (workbook preamble nominally M>=5.0)")
+    if sub_m5:
+        fail(f"{sub_m5} events with preferred mag < 5.0 remain in events despite "
+             f"the converter MIN_MAGNITUDE floor")
+    info.append(f"events excluded below the M>=5.0 preamble floor: {len(excluded)} "
+                f"(kept in metadata.excluded_events, capture-audited)")
 
     # ── 6. Expected-anomaly ledger ──
     mag_type_counts = {}
@@ -321,6 +347,7 @@ def main():
         "invalid_datetime_rows": [list(x) for x in bad_dt],
         "mag_type_counts": mag_type_counts,
         "n_duplicate_pairs": len(dups),
+        "n_excluded_below_min_mag": len(excluded),
     }
     if known:
         exp = EXPECTED_LEDGERS[KNOWN_SHA]

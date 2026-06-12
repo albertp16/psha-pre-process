@@ -1,18 +1,18 @@
 {
   "status": "pass",
-  "generated_utc": "2026-06-10T15:27:37.288549+00:00",
+  "generated_utc": "2026-06-12T08:52:32.967366+00:00",
   "source_file": "Earthquake Catalogue of the Philippines.xlsx",
   "source_sha256": "e2a22971d6f98dfac02b6d081099f7e365b40dc9ca2e5555d3d58f893ba610a3",
   "counts": {
-    "events": 3577,
-    "geojson_features": 3577,
+    "events": 3576,
+    "geojson_features": 3576,
     "xlsx_data_rows": 3577,
     "nonempty_cells_seen": 38754,
     "data_cells_reconciled": 47046,
     "max_row_width_seen": 1011
   },
   "ledger": {
-    "total_events": 3577,
+    "total_events": 3576,
     "per_sheet": {
       "1907-2018": 3032,
       "2019-2025": 545
@@ -32,9 +32,10 @@
       "Ms": 1686,
       "Mb": 1035,
       "Ml": 446,
-      "Mw": 410
+      "Mw": 409
     },
-    "n_duplicate_pairs": 24
+    "n_duplicate_pairs": 24,
+    "n_excluded_below_min_mag": 1
   },
   "failures": [],
   "warnings": [
@@ -43,7 +44,7 @@
   "info": [
     "1907-2018: 3032 data rows, all reconciled against events",
     "2019-2025: 545 data rows, all reconciled against events",
-    "events with preferred mag < 5.0: 1 (workbook preamble nominally M>=5.0)"
+    "events excluded below the M>=5.0 preamble floor: 1 (kept in metadata.excluded_events, capture-audited)"
   ],
   "spot_checks": [
     {

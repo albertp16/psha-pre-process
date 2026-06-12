@@ -4,7 +4,7 @@
   "source_agency": "PHIVOLCS",
   "source_file": "Earthquake Catalogue of the Philippines.xlsx",
   "source_sha256": "e2a22971d6f98dfac02b6d081099f7e365b40dc9ca2e5555d3d58f893ba610a3",
-  "generated_utc": "2026-06-10T12:15:54.699827+00:00",
+  "generated_utc": "2026-06-12T08:52:32.677124+00:00",
   "time_basis": "GMT (per workbook header)",
   "magnitude_preference": [
    "Mw",
@@ -12,12 +12,39 @@
    "Mb",
    "Ml"
   ],
-  "total_events": 3577,
+  "total_events": 3576,
+  "min_magnitude": 5.0,
+  "n_excluded_below_min_mag": 1,
+  "excluded_events": [
+   {
+    "id": "PH-3549",
+    "source_sheet": "2019-2025",
+    "source_row": 528,
+    "year": 2025,
+    "month": 6,
+    "day": 27,
+    "hour": 23,
+    "minute": 41,
+    "second": 42.0,
+    "datetime_utc": "2025-06-27T23:41:42Z",
+    "latitude": 5.28,
+    "longitude": 126.01,
+    "depth_km": 77.0,
+    "ml": null,
+    "mb": null,
+    "ms": null,
+    "mw": 4.8,
+    "mag": 4.8,
+    "mag_type": "Mw",
+    "intensity_reports": "InstrumentalIntensities: \nIntensity II - Malungon, SARANGANI \nIntensity I - Alabel and Maasim, SARANGANI",
+    "qa_flags": []
+   }
+  ],
   "mag_type_counts": {
    "Ms": 1686,
    "Mb": 1035,
    "Ml": 446,
-   "Mw": 410
+   "Mw": 409
   },
   "qa_flag_counts": {
    "mb_coerced_from_string": 1855,
@@ -30,6 +57,7 @@
    "Workbook preamble states region 11.961-15.559N / 119.208-122.912E, but the data actually spans ~2-22N and ~116.3-133E (nationwide and beyond); the preamble appears to be a leftover from a website query and is preserved verbatim in preamble_cells.",
    "Sheet '1907-2018' preamble says 'Period Covered: 1910 to 2018' but contains events from 1907.",
    "Preamble states 'Magnitude: 5.0 and above'; some events carry individual magnitude types below 5.0 (e.g. Ml down to 3.0) alongside a larger magnitude of another type.",
+   "Events whose PREFERRED magnitude is below 5.0 are excluded from `events` and the GeoJSON per that preamble floor; they are kept verbatim in metadata.excluded_events (count in metadata.n_excluded_below_min_mag) and remain capture-audited. Event ids keep their sequential slot, so an excluded event leaves a documented id gap.",
    "Origin times are GMT per the column header."
   ],
   "field_descriptions": {
@@ -87432,29 +87460,6 @@
    "mag": 6.1,
    "mag_type": "Mw",
    "intensity_reports": "Intensity V - Sarangani, Santa Maria, and Malita, DAVAO OCCIDENTAL; Pantukan, \nDAVAO DE ORO; Glan, and Malungon, SARANGANI \n\nIntensity IV - Compostela, Monkayo, and Montevista, DAVAO DE ORO; Malalag, and \nSanta Cruz, DAVAO DEL SUR; CITY OF DAVAO; Don Marcelino, and Jose Abad Santos, \nDAVAO OCCIDENTAL; Banaybanay, and Governor Generoso, DAVAO ORIENTAL; Alabel, \nKiamba, and Malapatan, SARANGANI; City of Koronadal, and Tupi, SOUTH COTABATO; \nCITY OF GENERAL SANTOS \n\nIntensity III - Mabini, Maco, and Nabunturan, DAVAO DE ORO; Carmen, Kapalong, and \nIsland Garden City of Samal, DAVAO DEL NORTE; Bansalan, City of Digos, Hagonoy, Kiblawan, \nMagsaysay, Matanao, Padada, and Sulop, DAVAO DEL SUR; Lupon, Manay, City of Mati, and \nTarragona, DAVAO ORIENTAL; Tulunan, COTABATO; Maasim, and Maitum, SARANGANI; Banga, \nPolomolok, Surallah, and Tampakan, SOUTH COTABATO; Kalamansig, Lambayong, Lutayan, \nand Palimbang, SULTAN KUDARAT \n\nIntensity II - San Fernando, BUKIDNON; Maragusan, and Mawab, DAVAO DE ORO; \nCity of Panabo, and City of Tagum, DAVAO DEL NORTE; Boston, Caraga, and San Isidro, \nDAVAO ORIENTAL; Aleosan, Arakan, City of Kidapawan, M'lang, Magpet, and Makilala, \nCOTABATO; Lake Sebu, Norala, Santo Ni�o, T'Boli, and Tantangan, SOUTH COTABATO; \nBagumbayan, Columbio, Esperanza, Lebak, President Quirino, Senator Ninoy Aquino, and \nCity of Tacurong, SULTAN KUDARAT; Hinatuan, SURIGAO DEL SUR; Datu Odin Sinsuat, and \nSultan Kudarat, MAGUINDANAO DEL NORTE; CITY OF COTABATO \n\nIntensity I - CITY OF ZAMBOANGA; Impasug-ong, BUKIDNON; Laak, and New Bataan, \nDAVAO DE ORO; Alamada, Antipas, Banisilan, Carmen, Kabacan, Libungan, Matalam, \nMidsayap, Pigkawayan, Pikit, and President Roxas, COTABATO; Isulan, SULTAN KUDARAT \n\nInstrumental Intensities: \n\nIntensity V - Malungon, SARANGANI \n\nIntensity IV - Kiamba, SARANGANI; CITY OF GENERAL SANTOS \n\nIntensity III - City of Gingoog, MISAMIS ORIENTAL; Nabunturan, DAVAO DE ORO; Magsaysay, \nand Matanao, DAVAO DEL SUR; CITY OF DAVAO; Don Marcelino, DAVAO OCCIDENTAL; \nCity of Kidapawan, COTABATO; Glan, Maasim, and Maitum, SARANGANI; Banga, \nCity of Koronadal, Lake Sebu, Surallah, and T'Boli, SOUTH COTABATO; Lambayong, and \nPalimbang, SULTAN KUDARAT \n\nIntensity II - San Fernando, BUKIDNON; Balingasag, MISAMIS ORIENTAL; Magpet, COTABATO; \nNorala, and Santo Ni�o, SOUTH COTABATO; Bagumbayan, Columbio, Esperanza, Kalamansig, \nLebak, and President Quirino, SULTAN KUDARAT; City of Bislig, SURIGAO DEL SUR \n\nIntensity I - CITY OF ZAMBOANGA; Kalilangan, BUKIDNON; CITY OF CAGAYAN DE ORO; \nBanisilan, and Carmen, COTABATO; Isulan, SULTAN KUDARAT; City of Cabadbaran, \nAGUSAN DEL NORTE",
-   "qa_flags": []
-  },
-  {
-   "id": "PH-3549",
-   "source_sheet": "2019-2025",
-   "source_row": 528,
-   "year": 2025,
-   "month": 6,
-   "day": 27,
-   "hour": 23,
-   "minute": 41,
-   "second": 42.0,
-   "datetime_utc": "2025-06-27T23:41:42Z",
-   "latitude": 5.28,
-   "longitude": 126.01,
-   "depth_km": 77.0,
-   "ml": null,
-   "mb": null,
-   "ms": null,
-   "mw": 4.8,
-   "mag": 4.8,
-   "mag_type": "Mw",
-   "intensity_reports": "InstrumentalIntensities: \nIntensity II - Malungon, SARANGANI \nIntensity I - Alabel and Maasim, SARANGANI",
    "qa_flags": []
   },
   {
