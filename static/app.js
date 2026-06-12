@@ -454,11 +454,15 @@ function buildMapboxMap(containerId, siteLat, siteLon, events, title, opts) {
 function initMap(containerId, token, siteLat, siteLon, events, title, opts) {
   mapboxgl.accessToken = token;
 
+  // Open fitted to the whole 300 km site radius (plus a small margin)
+  // rather than a fixed zoom that crops the ring.
+  var dLat = 300 / 111.32;
+  var dLon = 300 / (111.32 * Math.cos(siteLat * Math.PI / 180));
   var map = window['_decMap_' + containerId] = new mapboxgl.Map({
     container: containerId,
     style: getMapStyle('dec-mapstyle'),
-    center: [siteLon, siteLat],
-    zoom: 6,
+    bounds: [[siteLon - dLon, siteLat - dLat], [siteLon + dLon, siteLat + dLat]],
+    fitBoundsOptions: { padding: 28 },
     preserveDrawingBuffer: true
   });
 
