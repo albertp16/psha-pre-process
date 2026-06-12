@@ -11,10 +11,12 @@ The correct catalogue-preparation chain, per Baker–Bradley–Stafford (BBS),
 
 ```
 1. Harmonize to Mw      (BBS p. 69 — ON by default: reported Mw > Ms→Mw >
-                         mb→Mw, Scordilis 2006 via Lamessa p. 5, applied only
+                         mb→Mw > Ml→Mw, Scordilis 2006 via Lamessa p. 5 and
+                         Kadirioglu & Kartal 2016 Eq. 3c for Ml, applied only
                          inside each relation's validity range so the largest
                          events are never extrapolated; user coefficients
-                         override; Ml-only events pass through flagged)
+                         override; web routes do not pass Ml yet, so Ml-only
+                         events still pass through flagged there)
 2. Remove duplicates    (BBS p. 68 — applied by default on every analysis page)
 3. Decluster            (BBS pp. 73, 75 — mainshock = largest in cluster)
 4. Completeness         (BBS pp. 71–72)
@@ -58,9 +60,12 @@ them as if verified, and prefer adding the PDFs to the folder first:
 - Stepp (1972) — completeness algorithm in `psha_preprocess/catalogue/completeness.py`.
 - Uhrhammer (1986), Grünthal — alternative decluster windows (same function).
 - Philippines-specific Ms/Mb/Ml→Mw conversion relations — step 1 currently
-  uses the folder-cited GLOBAL relations (Scordilis 2006 via Lamessa p. 5),
-  range-gated; region-specific relations remain the preferred replacement,
-  and Ml has no folder-backed conversion at all (kept as reported, flagged).
+  uses folder-cited but non-Philippine relations (Scordilis 2006 via Lamessa
+  p. 5 for Ms/mb; Kadirioglu & Kartal 2016 Eq. 3c for Ml — regressed on the
+  TURKEY catalogue, regional caveat disclosed in the docstrings), range-gated;
+  region-specific relations remain the preferred replacement. The Ml→Mw
+  conversion exists in the pipeline module + reference but the web routes do
+  not pass an Ml column yet.
 - The dm/2 b-value binning correction (Utsu 1965/Bender 1983) — exposed as
   the off-by-default `bin_correction` form flag; do not turn it on by default.
 

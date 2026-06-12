@@ -71,17 +71,55 @@ MS_RELATIONS = {
 MB_RELATIONS = {
     "scordilis2006": (0.85, 1.03, 3.5, 6.2, 0.29),    # Lamessa Eq. 1, p. 5
     "akkar2010":     (1.104, -0.194, 3.5, 6.3, None), # Lamessa Eq. 2, p. 5
+    "kadirioglu2016": (1.0319, 0.0223, 3.9, 6.8, None),  # KK16 Eq. 3a, p. 306
+}
+ML_RELATIONS = {
+    # Kadirioglu & Kartal (2016), `Kadirioglu and Kartal.pdf`, Eq. (3c),
+    # p. 306 (PDF 8): Mw = 0.8095 ML + 1.3003, 3.3 <= ML <= 6.6 (OLS,
+    # R^2 = 0.6244, 404 ML-Mw pairs vs Harvard GCMT, p. 308). Regional
+    # caveat: regressed on the TURKEY catalogue (32-45N, 23-48E, 1900-2012,
+    # p. 301) — applying it to PHIVOLCS ML values is an analyst decision.
+    "kadirioglu2016": (0.8095, 1.3003, 3.3, 6.6, None),  # KK16 Eq. 3c, p. 306
 }
 
 
-def homogenize_to_mw(mw=None, ms=None, mb=None, fallback=None,
+def ml_to_mw(ml, relation="kadirioglu2016", respect_ranges=True):
+    """Convert local magnitude ML to Mw (Kadirioglu & Kartal 2016, Eq. 3c).
+
+    Basis: `Kadirioglu and Kartal.pdf`, Eq. (3c), p. 306 (PDF 8):
+    Mw = 0.8095 (+/-0.031) ML + 1.3003 (+/-0.154), valid 3.3 <= ML <= 6.6.
+    Regional caveat: regressed on the Turkey catalogue (Sec. 2, p. 301);
+    no Philippine ML->Mw relation exists in the Reference Folder, so using
+    it on PHIVOLCS ML values is a disclosed analyst decision.
+
+    Returns (mw, converted_flag). With respect_ranges=True (default), an ML
+    outside [3.3, 6.6] is returned unchanged and flagged False — the same
+    range-gating ruling as the Ms/mb relations.
+
+    >>> round(ml_to_mw(5.0)[0], 4), ml_to_mw(5.0)[1]
+    (5.3478, True)
+    >>> round(ml_to_mw(3.3)[0], 5), round(ml_to_mw(6.6)[0], 4)
+    (3.97165, 6.643)
+    >>> ml_to_mw(7.0)            # outside validity range -> kept as reported
+    (7.0, False)
+    >>> round(ml_to_mw(7.0, respect_ranges=False)[0], 4)  # disclosed extrapolation
+    6.9668
+    """
+    a, b, mmin, mmax, _ = ML_RELATIONS[relation]
+    ml = float(ml)
+    if respect_ranges and not (mmin <= ml <= mmax):
+        return ml, False
+    return a * ml + b, True
+
+
+def homogenize_to_mw(mw=None, ms=None, mb=None, ml=None, fallback=None,
                      ms_relation="scordilis2006", mb_relation="scordilis2006",
-                     respect_ranges=True):
+                     ml_relation="kadirioglu2016", respect_ranges=True):
     """Best per-event Mw from mixed reported scales, with cited relations.
 
-    Per event the first available of (reported Mw, Ms->Mw, mb->Mw) is used;
-    when none is available the `fallback` magnitude passes through unchanged
-    and is labelled "raw" (no folder-backed single-step Ml->Mw exists).
+    Per event the first available of (reported Mw, Ms->Mw, mb->Mw, Ml->Mw)
+    is used; when none is available the `fallback` magnitude passes through
+    unchanged and is labelled "raw".
 
     With ``respect_ranges=True`` (default) a relation is applied only inside
     its cited validity range — outside it the event falls through to the next
@@ -94,24 +132,30 @@ def homogenize_to_mw(mw=None, ms=None, mb=None, fallback=None,
     Lamessa et al. (2019), p. 5 — Scordilis (2006) mb->Mw Eq. (1)
     [Mw = 0.85 mb + 1.03, 3.5<=mb<=6.2] and Ms->Mw Eq. (8)
     [Mw = 0.67 Ms + 2.07, 3.0<=Ms<=6.1]; Akkar et al. (2010) Eqs. (2)/(10)
-    as alternatives. Mirrors the psha-mind vault Day 16
+    as alternatives; Kadirioglu & Kartal (2016) Eq. (3c), p. 306 —
+    Ml->Mw [Mw = 0.8095 Ml + 1.3003, 3.3<=Ml<=6.6, Turkey catalogue —
+    regional caveat applies]. Mirrors the psha-mind vault Day 16
     (notes/code/16_moment_magnitude.py).
 
     Returns (mw_est, sources) — sources per event in
-    {"mw", "ms2mw", "mb2mw", "raw", "nan"}.
+    {"mw", "ms2mw", "mb2mw", "ml2mw", "raw", "nan"}.
 
     >>> mw_est, src = homogenize_to_mw(
     ...     mw=[np.nan, 7.2, np.nan, np.nan],
     ...     ms=[6.0, 6.5, np.nan, np.nan],
     ...     mb=[5.5, 5.0, 5.0, np.nan],
-    ...     fallback=[5.9, 7.2, 5.2, 4.6])
-    >>> np.round(mw_est, 2).tolist()                 # Ms 6.0 -> 6.09, etc.
-    [6.09, 7.2, 5.28, 4.6]
+    ...     ml=[np.nan, np.nan, np.nan, 5.0],
+    ...     fallback=[5.9, 7.2, 5.2, 5.0])
+    >>> np.round(mw_est, 2).tolist()       # Ms 6.0 -> 6.09; Ml 5.0 -> 5.35
+    [6.09, 7.2, 5.28, 5.35]
     >>> src.tolist()
-    ['ms2mw', 'mw', 'mb2mw', 'raw']
+    ['ms2mw', 'mw', 'mb2mw', 'ml2mw']
     >>> mw_est, src = homogenize_to_mw(ms=[8.3], fallback=[8.3])
     >>> mw_est.tolist(), src.tolist()    # Ms 8.3 outside 3.0-6.1: kept raw
     ([8.3], ['raw'])
+    >>> mw_est, src = homogenize_to_mw(ml=[7.0], fallback=[7.0])
+    >>> mw_est.tolist(), src.tolist()    # Ml 7.0 outside 3.3-6.6: kept raw
+    ([7.0], ['raw'])
     >>> mw_est, src = homogenize_to_mw(ms=[8.3], fallback=[8.3],
     ...                                respect_ranges=False)
     >>> round(float(mw_est[0]), 2), src.tolist()     # disclosed extrapolation
@@ -122,31 +166,36 @@ def homogenize_to_mw(mw=None, ms=None, mb=None, fallback=None,
             return None
         return np.asarray(x, dtype=float)
 
-    arrays = [a for a in (_arr(mw), _arr(ms), _arr(mb), _arr(fallback))
-              if a is not None]
+    arrays = [a for a in (_arr(mw), _arr(ms), _arr(mb), _arr(ml),
+                          _arr(fallback)) if a is not None]
     if not arrays:
-        raise ValueError("at least one of mw/ms/mb/fallback is required")
+        raise ValueError("at least one of mw/ms/mb/ml/fallback is required")
     n = len(arrays[0])
     mw_a = _arr(mw) if mw is not None else np.full(n, np.nan)
     ms_a = _arr(ms) if ms is not None else np.full(n, np.nan)
     mb_a = _arr(mb) if mb is not None else np.full(n, np.nan)
+    ml_a = _arr(ml) if ml is not None else np.full(n, np.nan)
     fb_a = _arr(fallback) if fallback is not None else np.full(n, np.nan)
 
     a_ms, b_ms, ms_lo, ms_hi = MS_RELATIONS[ms_relation][:4]
     a_mb, b_mb, mb_lo, mb_hi = MB_RELATIONS[mb_relation][:4]
+    a_ml, b_ml, ml_lo, ml_hi = ML_RELATIONS[ml_relation][:4]
 
     ms_conv = a_ms * ms_a + b_ms
     mb_conv = a_mb * mb_a + b_mb
+    ml_conv = a_ml * ml_a + b_ml
     if respect_ranges:
         ms_conv = np.where((ms_a >= ms_lo) & (ms_a <= ms_hi), ms_conv, np.nan)
         mb_conv = np.where((mb_a >= mb_lo) & (mb_a <= mb_hi), mb_conv, np.nan)
+        ml_conv = np.where((ml_a >= ml_lo) & (ml_a <= ml_hi), ml_conv, np.nan)
 
     # Lowest-priority source first; each later layer overwrites, so the final
-    # priority is reported Mw > Ms->Mw > mb->Mw > fallback (BBS p. 69:
-    # reported Mw preferred).
+    # priority is reported Mw > Ms->Mw > mb->Mw > Ml->Mw > fallback
+    # (BBS p. 69: reported Mw preferred).
     out = np.full(n, np.nan)
     src = np.full(n, "nan", dtype=object)
     for values, label in ((fb_a, "raw"),
+                          (ml_conv, "ml2mw"),
                           (mb_conv, "mb2mw"),
                           (ms_conv, "ms2mw"),
                           (mw_a, "mw")):
