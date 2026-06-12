@@ -58,9 +58,13 @@ python web_app.py                      # http://127.0.0.1:5000
 ```
 
 Maps need a Mapbox token (any of):
+- put `MAPBOX_TOKEN=pk....` in an untracked `.env` next to `web_app.py`
+  (loaded at startup; real environment variables take precedence), or
 - set the `MAPBOX_TOKEN` environment variable, or
 - put the token in an untracked `mapbox_token.txt` next to `web_app.py`, or
 - paste it into the token field in the UI.
+
+`.env` also accepts the optional `PORT` and `FLASK_DEBUG` overrides.
 
 ## Data pipeline
 

@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "psha-pre-process",
-      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeExecutable": "python3",
       "runtimeArgs": ["web_app.py"],
       "port": 5000,
       "autoPort": true

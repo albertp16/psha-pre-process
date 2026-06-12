@@ -38,8 +38,18 @@ DATA_DIR = REPO_ROOT / "data"
 REPORTS_DIR = REPO_ROOT / "reports"
 DEFAULT_CATALOG_LABEL = "PHIVOLCS Earthquake Catalogue of the Philippines"
 
-# Mapbox token: env var, else untracked mapbox_token.txt next to this file,
-# else maps prompt for a token in the UI.
+# Untracked .env next to this file: KEY=VALUE lines, # comments allowed.
+# Real environment variables take precedence (setdefault).
+_env_file = REPO_ROOT / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _key, _, _value = _line.partition("=")
+            os.environ.setdefault(_key.strip(), _value.strip().strip("'\""))
+
+# Mapbox token: env var (or .env), else untracked mapbox_token.txt next to
+# this file, else maps prompt for a token in the UI.
 MAPBOX_TOKEN = os.environ.get("MAPBOX_TOKEN", "")
 _token_file = REPO_ROOT / "mapbox_token.txt"
 if not MAPBOX_TOKEN and _token_file.exists():
