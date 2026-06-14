@@ -6,7 +6,7 @@ built around the PHIVOLCS Earthquake Catalogue of the Philippines.**
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Flask](https://img.shields.io/badge/flask-3.x-lightgrey)
 ![Capture audit](https://img.shields.io/badge/capture%20audit-passing-brightgreen)
-![Events](https://img.shields.io/badge/PHIVOLCS%20events-3%2C577-orange)
+![Events](https://img.shields.io/badge/PHIVOLCS%20events-3%2C576-orange)
 
 Developed by **Albert Pamonag** and **Camille Pajarillaga** — APEC Team.
 Analysis modules ported from the in-house `seismicprocesspy` toolkit.
@@ -23,9 +23,9 @@ accepts an uploaded CSV instead.
 
 | Step | Page | Method | Key outputs |
 |---|---|---|---|
-| — | **Catalog** | Interactive Mapbox epicenter map; site lat/lon inputs (or a map click) list the top-5 events within 300 km | Map + legend, audit status, top-5 table, source notes |
+| — | **Catalog** | Interactive Mapbox epicenter map; site lat/lon inputs (or a map click) list the top-5 events within 300 km | Map + legend, magnitude-distribution table, audit status, top-5 table, source notes |
 | 1 | **Moment Magnitude (Mw)** | Homogenize to Mw (reported Mw > Ms→Mw > mb→Mw, Scordilis 2006 via Lamessa 2019, range-gated) | Homogenized CSV (`mag_mw` + basis), per-event conversion table (LaTeX), basis scatter |
-| 2 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986), mainshock = largest in cluster | Mainshock catalogues (CSV), maps, mag-time plots |
+| 2 | **Declustering** | Gardner-Knopoff windows (GK 1974, Grünthal, Uhrhammer 1986), mainshock = largest in cluster | Mainshock catalogues (CSV), epicentre + focal-depth maps, magnitude-time and focal-depth before/after plots |
 | 3 | **Completeness** | Stepp (1972), automated + manual tables | Completeness tables, sigma-lambda + density plots |
 | 4 | **Gutenberg-Richter** | Aki MLE a/b values with Shi–Bolt error, completeness-corrected rates | Recurrence plot, rates CSV |
 | 5 | **MFD** | Completeness-corrected rates by depth class | OpenQuake `ArbitraryMFD` + `TruncatedGRMFD` XML, rates CSV |
@@ -38,6 +38,11 @@ accepts an uploaded CSV instead.
 
 UI: light/dark theme, numbered workflow sidebar, site-preset dropdown
 (Project Site 14.62758° N, 121.08727° E or custom coordinates), fullscreen maps.
+The declustering maps render landscape and open fitted to the whole 300 km site
+radius; circles are coloured by magnitude (or by focal-depth class on the
+dedicated focal-depth maps) and sized by magnitude, with events beyond 300 km
+dimmed to a grey halftone. Each map carries its own legend whose counts describe
+only the events drawn on that map.
 
 ## Quick start
 
