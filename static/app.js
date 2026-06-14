@@ -576,14 +576,17 @@ function downloadMap(containerId, filename) {
   a.click();
 }
 
-// Build the Mapbox legend as a white sidebar panel.
-// Circle colour AND size encode magnitude; focal depth is a catalog statistic
-// (shown in the click popup, not as a map symbol). `showSite` adds the site
-// pin + 300 km ring rows used by the declustering maps. `depthOnMap`
-// (focal-depth-coloured maps) greys the magnitude swatches — size only —
-// and flips the focal-depth note from "not drawn" to "drawn on this map".
-function buildDecLegend(d, suffix, source, showSite, depthOnMap) {
+// Build the Mapbox legend. Circle colour AND size encode magnitude; focal
+// depth is a catalog statistic (shown in the click popup, not as a map
+// symbol). `showSite` adds the site pin + 300 km ring rows used by the
+// declustering maps. `depthOnMap` (focal-depth-coloured maps) greys the
+// magnitude swatches — size only — and flips the focal-depth note.
+// `orientation`: 'below' renders a full-width horizontal card (sections as
+// columns) that sits beneath a landscape map; anything else keeps the
+// original 230px vertical sidebar card used by the catalog page.
+function buildDecLegend(d, suffix, source, showSite, depthOnMap, orientation) {
   if (showSite === undefined) showSite = true;
+  var below = orientation === 'below';
   var mb = d.mag_bins || {};
   var magRows = [
     { c: '#fef08a', dia: 8,  label: '< 4.0',     n: mb.lt4 },
@@ -604,70 +607,95 @@ function buildDecLegend(d, suffix, source, showSite, depthOnMap) {
     { c: '#1e3a8a', label: dl.deep || 'Deep (70–700 km)',               n: dc.deep }
   ];
   var nTxt = function (v) { return v == null ? '' : ' <span style="color:var(--text2)">(n=' + v + ')</span>'; };
-  var head = function (t) { return '<div style="font-weight:600; color:var(--accent); margin:12px 0 6px">' + t + '</div>'; };
+  var head = function (t) { return '<div style="font-weight:600; color:var(--accent); margin:' +
+    (below ? '0 0 6px' : '12px 0 6px') + '">' + t + '</div>'; };
 
-  var s = '';
-  s += '<div id="map-legend-' + suffix + '" style="width:230px; flex-shrink:0; margin:12px 0; padding:14px 16px; ' +
-       'box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); ' +
-       'border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.08); ' +
-       "font-family:'Inter', sans-serif; color:var(--text); font-size:13px; line-height:1.5; overflow-y:auto;\">";
+  // ── Shared row/section builders (identical markup in both layouts) ──
+  var magRowHtml = function (r) {
+    return '<div style="display:flex; align-items:center; margin:5px 0">' +
+      '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
+      '<span style="width:' + r.dia + 'px; height:' + r.dia + 'px; border-radius:50%; background:' + r.c +
+      '; border:0.5px solid #555; display:inline-block"></span></span>' +
+      '<span>' + r.label + nTxt(r.n) + '</span></div>';
+  };
+  var depthRowHtml = function (r) {
+    return '<div style="display:flex; align-items:center; margin:4px 0">' +
+      '<span style="width:14px; height:14px; border-radius:2px; background:' + r.c +
+      '; display:inline-block; margin-right:8px; flex-shrink:0"></span>' +
+      '<span>' + escapeHtml(r.label) + nTxt(r.n) + '</span></div>';
+  };
 
-  s += '<div style="font-weight:700; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px">LEGEND</div>';
-  s += '<div style="font-size:11px; color:var(--text2); margin-bottom:8px">' +
-       (depthOnMap ? 'Circle colour = focal depth &middot; size = magnitude'
-                   : 'Circle colour &amp; size = magnitude') + '</div>';
+  var magSection = head(depthOnMap ? 'Magnitude (size only)' : 'Magnitude') +
+                   magRows.map(magRowHtml).join('');
 
-  s += head(depthOnMap ? 'Magnitude (size only)' : 'Magnitude');
-  magRows.forEach(function (r) {
-    s += '<div style="display:flex; align-items:center; margin:5px 0">' +
-         '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
-         '<span style="width:' + r.dia + 'px; height:' + r.dia + 'px; border-radius:50%; background:' + r.c +
-         '; border:0.5px solid #555; display:inline-block"></span></span>' +
-         '<span>' + r.label + nTxt(r.n) + '</span></div>';
-  });
-
+  var siteSection = '';
   if (showSite) {
-    s += head('Site &amp; extent');
-    s += '<div style="display:flex; align-items:center; margin:5px 0">' +
-         '<span style="width:34px; flex-shrink:0; text-align:center; margin-right:8px">' +
-         '<svg width="13" height="17" viewBox="0 0 24 30" style="vertical-align:middle">' +
-         '<path d="M12 0C6 0 1.5 4.5 1.5 10.5 1.5 18 12 30 12 30s10.5-12 10.5-19.5C22.5 4.5 18 0 12 0z" fill="#3b82f6"/>' +
-         '<circle cx="12" cy="10.5" r="4" fill="#fff"/></svg></span>' +
-         '<span>Site location</span></div>';
-    s += '<div style="display:flex; align-items:center; margin:5px 0">' +
-         '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
-         '<span style="width:24px; border-top:2px dashed #3b82f6; display:inline-block"></span></span>' +
-         '<span>300 km radius</span></div>';
-    s += '<div style="display:flex; align-items:center; margin:5px 0">' +
-         '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
-         '<span style="width:12px; height:12px; border-radius:50%; background:#9ca3af; opacity:0.45; display:inline-block"></span></span>' +
-         '<span>Outside 300 km (grey halftone)</span></div>';
+    siteSection = head('Site &amp; extent') +
+      '<div style="display:flex; align-items:center; margin:5px 0">' +
+      '<span style="width:34px; flex-shrink:0; text-align:center; margin-right:8px">' +
+      '<svg width="13" height="17" viewBox="0 0 24 30" style="vertical-align:middle">' +
+      '<path d="M12 0C6 0 1.5 4.5 1.5 10.5 1.5 18 12 30 12 30s10.5-12 10.5-19.5C22.5 4.5 18 0 12 0z" fill="#3b82f6"/>' +
+      '<circle cx="12" cy="10.5" r="4" fill="#fff"/></svg></span>' +
+      '<span>Site location</span></div>' +
+      '<div style="display:flex; align-items:center; margin:5px 0">' +
+      '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
+      '<span style="width:24px; border-top:2px dashed #3b82f6; display:inline-block"></span></span>' +
+      '<span>300 km radius</span></div>' +
+      '<div style="display:flex; align-items:center; margin:5px 0">' +
+      '<span style="width:34px; flex-shrink:0; display:inline-flex; justify-content:center; align-items:center; margin-right:8px">' +
+      '<span style="width:12px; height:12px; border-radius:50%; background:#9ca3af; opacity:0.45; display:inline-block"></span></span>' +
+      '<span>Outside 300 km (grey halftone)</span></div>';
   }
 
-  s += head('Focal depth');
-  s += '<div style="font-size:11px; color:var(--text2); margin:-2px 0 6px; font-style:italic">' +
-       (depthOnMap
-         ? 'Drawn on this map: circle colour = depth class (grey = no depth value).'
-         : 'Catalog distribution (project convention, uniform across pages) — not drawn on map; shown on click.') +
-       '</div>';
-  depthRows.forEach(function (r) {
-    s += '<div style="display:flex; align-items:center; margin:4px 0">' +
-         '<span style="width:14px; height:14px; border-radius:2px; background:' + r.c +
-         '; display:inline-block; margin-right:8px; flex-shrink:0"></span>' +
-         '<span>' + escapeHtml(r.label) + nTxt(r.n) + '</span></div>';
-  });
+  var depthSection = head('Focal depth') +
+    '<div style="font-size:11px; color:var(--text2); margin:-2px 0 6px; font-style:italic">' +
+    (depthOnMap
+      ? 'Drawn on this map: circle colour = depth class (grey = no depth value).'
+      : 'Catalog distribution (project convention, uniform across pages) — not drawn on map; shown on click.') +
+    '</div>' + depthRows.map(depthRowHtml).join('');
   if (dc.unknown) {
-    s += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown +
-         ' event(s) without usable depth (missing or outside 0&ndash;700 km).</div>';
+    depthSection += '<div style="font-size:11px; color:var(--text2); margin-top:2px">' + dc.unknown +
+      ' event(s) without usable depth (missing or outside 0&ndash;700 km).</div>';
   }
 
-  s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border); color:var(--text); font-size:12px">';
-  s += '<div>Source: ' + escapeHtml(String(source || 'Uploaded catalog')) + '</div>';
-  if (showSite) s += '<div>Radius: 300 km</div>';
-  s += '<div>Total events: ' + (d.n_total != null ? d.n_total : '') + '</div>';
-  s += '<div>Period: ' + (d.catalog_period || '—') + '</div>';
-  s += '</div>';
+  var footer = '<div>Source: ' + escapeHtml(String(source || 'Uploaded catalog')) + '</div>' +
+    (showSite ? '<div>Radius: 300 km</div>' : '') +
+    '<div>Total events: ' + (d.n_total != null ? d.n_total : '') + '</div>' +
+    '<div>Period: ' + (d.catalog_period || '—') + '</div>';
 
+  var subtitle = depthOnMap ? 'Circle colour = focal depth &middot; size = magnitude'
+                            : 'Circle colour &amp; size = magnitude';
+  var cardBase = 'background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); ' +
+    'border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.08); ' +
+    "font-family:'Inter', sans-serif; color:var(--text); font-size:13px; line-height:1.5;";
+
+  // ── Horizontal card beneath a landscape map ──
+  if (below) {
+    var c = '<div id="map-legend-' + suffix + '" style="width:100%; margin:10px 0 0; padding:14px 18px; box-sizing:border-box; ' + cardBase + '">';
+    c += '<div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px 14px; margin-bottom:10px">' +
+         '<span style="font-weight:700; letter-spacing:1.5px; color:var(--accent)">LEGEND</span>' +
+         '<span style="font-size:11px; color:var(--text2)">' + subtitle + '</span></div>';
+    c += '<div style="display:flex; flex-wrap:wrap; gap:14px 40px; align-items:flex-start">';
+    c += '<div style="flex:0 1 auto; min-width:140px">' + magSection + '</div>';
+    if (siteSection) c += '<div style="flex:0 1 auto; min-width:170px">' + siteSection + '</div>';
+    c += '<div style="flex:1 1 230px; min-width:210px">' + depthSection + '</div>';
+    c += '</div>';
+    c += '<div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:12px; ' +
+         'display:flex; flex-wrap:wrap; gap:2px 28px">' + footer + '</div>';
+    c += '</div>';
+    return c;
+  }
+
+  // ── Original vertical sidebar card (catalog page) ──
+  var s = '<div id="map-legend-' + suffix + '" style="width:230px; flex-shrink:0; margin:12px 0; padding:14px 16px; ' +
+    'box-sizing:border-box; ' + cardBase + ' overflow-y:auto;">';
+  s += '<div style="font-weight:700; letter-spacing:1.5px; color:var(--accent); margin-bottom:4px">LEGEND</div>';
+  s += '<div style="font-size:11px; color:var(--text2); margin-bottom:8px">' + subtitle + '</div>';
+  s += magSection;
+  s += siteSection;
+  s += depthSection;
+  s += '<div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--border); color:var(--text); font-size:12px">' +
+       footer + '</div>';
   s += '</div>';
   return s;
 }
@@ -1173,12 +1201,18 @@ async function runDeclustering() {
         });
       };
       var primaryName = methodNames[d.methods_used[0]];
-      var mapRow = function (mapId, fileName, suffix, depthOnMap, evs) {
-        return '<div style="display:flex; flex-direction:row; align-items:stretch;">' +
-          '<div id="' + mapId + '" class="map-container" style="flex:1; min-height:500px;"></div>' +
-          buildDecLegend(legendFor(evs), suffix, decSource, true, depthOnMap) +
-          '</div>' +
-          '<button class="btn btn-secondary" style="margin-top:8px" onclick="downloadMap(\'' + mapId + '\',\'' + fileName + '\')">Download Map</button>';
+      // Landscape maps: full-panel-width map kept wider-than-tall via a 3:2
+      // aspect ratio (height:auto overrides the .map-container 500px rule;
+      // max-height caps it on very wide screens). The legend is laid out
+      // horizontally beneath the map (orientation 'below').
+      var mapRow = function (mapId, fileName, suffix, depthOnMap, evs, maxH) {
+        maxH = maxH || 520;
+        return '<div style="display:flex; flex-direction:column; align-items:stretch;">' +
+          '<div id="' + mapId + '" class="map-container" style="width:100%; height:auto; ' +
+          'aspect-ratio:3/2; max-height:' + maxH + 'px; min-height:240px; margin:8px 0 0;"></div>' +
+          buildDecLegend(legendFor(evs), suffix, decSource, true, depthOnMap, 'below') +
+          '<button class="btn btn-secondary" style="margin-top:8px; align-self:flex-start" onclick="downloadMap(\'' + mapId + '\',\'' + fileName + '\')">Download Map</button>' +
+          '</div>';
       };
       html += '<h2>Interactive Maps (Mapbox)</h2>' +
         '<div class="plot-compare">' +
@@ -1188,7 +1222,7 @@ async function runDeclustering() {
         mapRow('map-declustered', 'map_declustered.png', 'declustered', false, d.map_mainshocks) + '</div>' +
         '</div>' +
         '<div style="margin-top:16px"><h4>Within 300 km &ndash; ' + primaryName + ' mainshocks</h4>' +
-        mapRow('map-300km', 'map_300km.png', '300km', false, d.map_300km) + '</div>' +
+        mapRow('map-300km', 'map_300km.png', '300km', false, d.map_300km, 580) + '</div>' +
         '<div class="plot-compare" style="margin-top:16px">' +
         '  <div class="plot-panel"><h4>Focal Depth &ndash; Original Catalog</h4>' +
         mapRow('map-focaldepth', 'map_focal_depth.png', 'focaldepth', true, d.map_all) + '</div>' +
